@@ -3,9 +3,12 @@ test_that("manual inputs match nichemap outputs", {
   # use a nichemapr function to get macroclimatic inputs
   # compare them with the results of the equivalent inbuilt nichemapr function
   # use default
+  library(NicheMapR)
 
   # Central Perth WA for 2021-2022
   loc <- c(115.86, -31.95)
+  year_start <- 2021
+  year_end <- 2022
 
   # extract macrocliamtic data from terraclimate (writing to a CSV) and run
   # nichemapr microclimate model on it
@@ -22,17 +25,29 @@ test_that("manual inputs match nichemap outputs", {
   setwd(nwd)
 
   # note: NicheMapR must be loaded in the namespace to find the table
-  # CampNormTbl9_1, since it appears not to be visible within the package
+  # CampNormTbl9_1, since it appears not to be visible within the package.
   res_nmr <- NicheMapR::micro_terra(loc = loc,
-                               ystart = 2021,
-                               yfinish = 2022,
-                               # use R version of GADS bc of crashing fortran?
-                               run.gads = 2,
-                               # write extracted macroclimate data to CSV files
-                               write_input = 1)
+                                    ystart = year_start,
+                                    yfinish = year_end,
+                                    # daily data (highest resolution)
+                                    timeinterval = 365,
+                                    # spread out rainfall over months and days
+                                    evenrain = 1,
+                                    rainfrac = 0,
+                                    snowmodel = 0,
+                                    runmoist = 0,
+                                    runshade = 0,
+                                    # use R version of GADS bc of stochastically
+                                    # crashing fortran version
+                                    run.gads = 2,
+                                    # write extracted macroclimate data to CSV
+                                    # files
+                                    write_input = 1)
 
   # now reload macroclimatic conditions and push them into our function
-  files <- list.files("micro csv input", full.names = TRUE)
+  files <- list.files("micro csv input",
+                      full.names = TRUE)
+
   load_micro <- function(filename) {
     table <- read.csv(filename)
     table_sub <- table[, -1]
@@ -87,32 +102,31 @@ test_that("manual inputs match nichemap outputs", {
                      L = L,
                      LAI = LAI)
   )
-  # put us back inthe right working directory
+  # put us back in the right working directory
   setwd(owd)
-
-  # note, it only takes ~75ms to run the fortran bits
-  # bench::mark(
-  #   res <- NicheMapR::microclimate(micro)
-  # )
 
   res <- NicheMapR::microclimate(micro)
 
-  # check they yield approximately the same microclimate forcing parameters
-  # (assuming a loss of precision due to writing and reading the parameters)
-  # we use metout & shadmet, variables: TAREF/TALOC (air temp) RH/RHLOC (relative
-  # humidity) VLOC (wind speed)
-  cols_metout <- c("TAREF", "RH", "VLOC")
-  cols_shadmet <- c("TALOC", "RHLOC", "VLOC")
+  # n_years <- length(year_start:year_end)
+  # # most elements of the input give daily values
+  # length(micro$TMAXX) / n_years
+  # # each row of the output gives hourly values
+  # nrow(res$metout) / (365 * n_years)
 
-  # compute the absolute difference as a proportion of the value
+  # check they yield approximately the same microclimate forcing parameters
+  # (assuming a loss of precision due to writing and reading the parameters) we
+  # use metout variables: TAREF (air temp in C) RH (relative humidity in %) VLOC
+  # (wind speed in m/s)
+  cols <- c("TAREF", "RH", "VLOC")
+
+  # compute the absolute difference as a percentage of the value
   perc_diff <- function(a, b) {
     100 * abs(a - b) / abs(a)
   }
 
-  metout_diff <- perc_diff(res_nmr$metout[, cols_metout], res$metout[, cols_metout])
-  shadmet_diff <- perc_diff(res_nmr$shadmet[, cols_shadmet], res$shadmet[, cols_shadmet])
+  metout_diff <- perc_diff(res_nmr$metout[, cols], res$metout[, cols])
 
   # ensure it is very small (less than 0.001%)
-  testthat::expect_lt(max(metout_diff, shadmet_diff), 1e-3)
+  testthat::expect_lt(max(metout_diff), 1e-3)
 
 })

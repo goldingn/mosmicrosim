@@ -7,7 +7,6 @@
 # * https://testthat.r-lib.org/reference/test_package.html#special-files
 
 library(testthat)
-library(NicheMapR)
 library(mosmicrosim)
 
 test_check("mosmicrosim")
