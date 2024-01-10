@@ -62,12 +62,67 @@ create_micro <- function(
     mean_temp_c = mean(c(daily_temp_max_c, daily_temp_min_c)),
     even_rain = even_rain)
 
-  # set the shade to a percentage, and only run once
-  minshade <- maxshade <- 100 * shade_prop
+  # set the shade to a percentage (both the same as we will only run once)
+  # minshade <- maxshade <- 100 * shade_prop
 
   stop("not yet implemented")
-  micro <- list(microinput = microinput,
-                ...)
+
+  # empty matrix of tides since we don't use them
+  tides <- matrix(data = 0,
+                  nrow = 24 * n_days,
+                  ncol = 3)
+
+  # these are all blanks to fill in
+  TAIRhr <- rep(0, 24 * n_days)
+  RHhr <- rep(0, 24 * n_days)
+  WNhr <- rep(0, 24 * n_days)
+  CLDhr <- rep(0, 24 * n_days)
+  RAINhr <- rep(0, 24 * n_days)
+  ZENhr <- rep(-1, 24 * n_days)
+  IRDhr <- rep(-1, 24 * ndays)
+
+  micro <- list(
+    tides = tides,
+    microinput = microinput,
+    # doy = doy,
+    # SLES = SLES,
+    # DEP = DEP,
+    # Nodes = Nodes,
+    # MAXSHADES = MAXSHADES,
+    # MINSHADES = MINSHADES,
+    # TMAXX = TMAXX,
+    # TMINN = TMINN,
+    # RHMAXX = RHMAXX,
+    # RHMINN = RHMINN,
+    # CCMAXX = CCMAXX,
+    # CCMINN = CCMINN,
+    # WNMAXX = WNMAXX,
+    # WNMINN = WNMINN,
+    TAIRhr = TAIRhr,
+    RHhr = RHhr,
+    WNhr = WNhr,
+    CLDhr = CLDhr,
+    # SOLRhr = SOLRhr,
+    RAINhr = RAINhr,
+    ZENhr = ZENhr,
+    IRDhr = IRDhr,
+    # REFLS = REFLS,
+    # PCTWET = PCTWET,
+    # soilinit = soilinit,
+    # hori = hori,
+    # TAI = TAI,
+    # soilprops = soilprops,
+    # moists = moists,
+    # RAINFALL = RAINFALL,
+    # tannulrun = tannulrun,
+    # PE = PE,
+    # KS = KS,
+    # BB = BB,
+    # BD = BD,
+    # DD = DD,
+    # L = L,
+    # LAI = LAI
+  )
 
   micro
 }
