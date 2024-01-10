@@ -8,8 +8,9 @@
 
 A prototype R package for simulating a timeseries of microclimatic
 conditions - e.g. local water surface area, water and air temperature
-and humidity - in a given location on earth, given a simple set of
-assumptions about the species’ habitat preferences.
+and humidity - in a given location on earth, for a mosquito species,
+given a simple set of assumptions about the species’ habitat
+preferences.
 
 Most of the computational work is done by the [NicheMapR R
 package](https://mrke.github.io/) and its internal Fortran routines for
@@ -20,13 +21,13 @@ additional simulation models for different types of small water bodies.
 
 So far the package does nothing. The to do list is as follows:
 
-- Import NicheMapR and set up package
-- Write a shim for functions like `NicheMapR::microclimate()` to enable
-  incorporation of other sources of climate timeseries data
-- Streamline simulation of microclimate components not including local
-  water surface area, and water and air temperature, and humidity
-- Implement simulation of local water surface area, and water and air
-  temperature, and humidity using a set of water body models (cone,
+- [x] Import NicheMapR and set up package
+- [ ] Write a shim for functions like `NicheMapR::microclimate()` to
+  enable incorporation of other sources of climate timeseries data
+- [ ] Streamline simulation of microclimate components not including
+  local water surface area, and water and air temperature, and humidity
+- [ ] Implement simulation of local water surface area, and water and
+  air temperature, and humidity using a set of water body models (cone,
   cylinder, with/without leakage)
-- Write a simplified interface to simulating microclimatic conditions
-  based on different mosquito habitat assumptions
+- [ ] Write a simplified interface to simulating microclimatic
+  conditions based on different mosquito habitat assumptions
