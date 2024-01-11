@@ -1,20 +1,26 @@
 test_that("manual inputs match nichemap outputs", {
 
-  # use a nichemapr function to get macroclimatic inputs
-  # compare them with the results of the equivalent inbuilt nichemapr function
-  # use default
+  # 1. use NicheMapR to get macroclimatic inputs and run the model
+
+  # 2. compare with the same model applied to the reconsituted 'micro' config
+  # file to check we are able to reload all the data
+
+  # 3. pass tthe daily climate data into our new shimming function and run
+  # microclimate to check it passes all arguments correctly
+
   library(NicheMapR)
 
-  # Central Perth WA for 2021-2022
+  # Get weather for central Perth WA for 2021-2022
   loc <- c(115.86, -31.95)
   year_start <- 2021
   year_end <- 2022
 
-  # extract macrocliamtic data from terraclimate (writing to a CSV) and run
-  # nichemapr microclimate model on it
+  # 1. using NicheMapR, extract macroclimatic data from terraclimate, write the
+  # microclimate config file data to CSVs, and run NicheMapR microclimate model
+  # on it to define results to compare against
 
   # temporarily move us to a temporary directory, so that nichemapr writes these
-  # files their
+  # files there
 
   # where we started
   owd <- getwd()
@@ -35,8 +41,9 @@ test_that("manual inputs match nichemap outputs", {
                                     evenrain = 1,
                                     rainfrac = 0,
                                     snowmodel = 0,
-                                    runmoist = 0,
+                                    runmoist = 1,
                                     runshade = 0,
+                                    minshade = 0,
                                     # use R version of GADS bc of stochastically
                                     # crashing fortran version
                                     run.gads = 2,
@@ -105,13 +112,36 @@ test_that("manual inputs match nichemap outputs", {
   # put us back in the right working directory
   setwd(owd)
 
+  # 2. rerun directly with this rebuilt config file, to check we have access to
+  # all the right objects and arguments
   res <- NicheMapR::microclimate(micro)
 
-  # n_years <- length(year_start:year_end)
-  # # most elements of the input give daily values
-  # length(micro$TMAXX) / n_years
-  # # each row of the output gives hourly values
-  # nrow(res$metout) / (365 * n_years)
+  # 3. now pass in the main ones to our new shimming function with a simpler
+  # interface to see if we can successfully recreate the outputs
+
+  # recreate the dates
+  dates <- as.Date(sprintf("%s-01-01", year_start)) + seq_along(micro$doy) - 1
+
+  # extract the altitude (I *think* this is the elevation element :| )
+  altitude <- micro$microinput[21]
+
+  # now rerun via our shimming function:
+  micro_new <- create_micro(
+    latitude = loc[2],
+    longitude = loc[1],
+    altitude_m = altitude,
+    dates = dates,
+    daily_temp_max_c = micro$TMAXX,
+    daily_temp_min_c = micro$TMAXX,
+    daily_rh_max_perc = micro$RHMAXX,
+    daily_rh_min_perc = micro$RHMINN,
+    daily_cloud_max_perc = micro$CCMAXX,
+    daily_cloud_min_perc = micro$CCMINN,
+    daily_wind_max_ms = micro$WNMAXX,
+    daily_wind_min_ms = micro$WNMINN,
+    daily_rainfall_mm = micro$RAINFALL)
+
+  res_new <- NicheMapR::microclimate(micro_new)
 
   # check they yield approximately the same microclimate forcing parameters
   # (assuming a loss of precision due to writing and reading the parameters) we
@@ -124,9 +154,15 @@ test_that("manual inputs match nichemap outputs", {
     100 * abs(a - b) / abs(a)
   }
 
-  metout_diff <- perc_diff(res_nmr$metout[, cols], res$metout[, cols])
+  res_diff <- perc_diff(res_nmr$metout[, cols], res$metout[, cols])
+  new_diff <- perc_diff(res_nmr$metout[, cols], res_new$metout[, cols])
 
   # ensure it is very small (less than 0.001%)
-  testthat::expect_lt(max(metout_diff), 1e-3)
+
+  # check we can rebuild the original microclimate config file
+  testthat::expect_lt(max(res_diff), 1e-3)
+
+  # check we can pass it all in correctly via our shimming function and defaults
+  testthat::expect_lt(max(new_diff), 1e-3)
 
 })
