@@ -19,12 +19,19 @@ simplified interface for specifying mosquito habitat types, linking
 NicheMapR to custom spatial climate/weather data, and including some
 additional simulation models for different types of small water bodies.
 
-So far the package does nothing. The to do list is as follows:
+So far the package provides a single (still in development) function:
+`create_micro()` which provides a more user-friendly interface to
+creating the config function for the `NicheMapR::microclimate()`
+function to compute microclimatic conditions at a given location with
+user-specified weather timeseries, for a simplified microclimate model
+corresponding to mosquito habitats.
+
+The to do list for the rest of the package is as follows:
 
 - [x] Import NicheMapR and set up package
-- [ ] Write a shim for functions like `NicheMapR::microclimate()` to
+- [x] Write a shim for functions like `NicheMapR::microclimate()` to
   enable incorporation of other sources of climate timeseries data
-- [ ] Streamline simulation of microclimate components not including
+- [ ] Streamline simulation of microclimate components *not* including
   local water surface area, and water and air temperature, and humidity
 - [ ] Implement simulation of local water surface area, and water and
   air temperature, and humidity using a set of water body models (cone,
