@@ -37,13 +37,26 @@ test_that("manual inputs match nichemap outputs", {
                                     yfinish = year_end,
                                     # daily data (highest resolution)
                                     timeinterval = 365,
-                                    # spread out rainfall over months and days
-                                    evenrain = 1,
+                                    # rain falls evenly over the month
                                     rainfrac = 0,
+                                    # rain falls evenly over the day
+                                    evenrain = 1,
+                                    # don't run the snow model
                                     snowmodel = 0,
+                                    # run the moisture model
                                     runmoist = 1,
-                                    runshade = 0,
+                                    # 50% shade (max has to be higher, even
+                                    # though it isn't used)
                                     minshade = 0,
+                                    maxshade = 100,
+                                    # force the intercept to match minshade, not
+                                    # maxshade
+                                    intercept = 0.5 * 0.3,
+                                    # don't run it twice for different shade
+                                    # levels
+                                    runshade = 0,
+                                    # organism at 1m
+                                    Usrhyt = 1,
                                     # use R version of GADS bc of stochastically
                                     # crashing fortran version
                                     run.gads = 2,
@@ -122,7 +135,7 @@ test_that("manual inputs match nichemap outputs", {
   # recreate the dates
   dates <- as.Date(sprintf("%s-01-01", year_start)) + seq_along(micro$doy) - 1
 
-  # extract the altitude (I *think* this is the elevation element :| )
+  # extract the altitude (this is the right element)
   altitude <- micro$microinput[21]
 
   # now rerun via our shimming function:
@@ -132,7 +145,7 @@ test_that("manual inputs match nichemap outputs", {
     altitude_m = altitude,
     dates = dates,
     daily_temp_max_c = micro$TMAXX,
-    daily_temp_min_c = micro$TMAXX,
+    daily_temp_min_c = micro$TMINN,
     daily_rh_max_perc = micro$RHMAXX,
     daily_rh_min_perc = micro$RHMINN,
     daily_cloud_max_perc = micro$CCMAXX,

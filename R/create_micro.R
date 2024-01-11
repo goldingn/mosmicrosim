@@ -84,6 +84,18 @@ create_micro <- function(
          "dates")
   }
 
+  # check the shade proportion
+  if (!(shade_prop >= 0 & shade_prop <= 1)) {
+    stop("shade_prop must be between 0 and 1, inclusive")
+  }
+
+  # annoyingly, maxshade must be greater than minshade, and when running with
+  # only one shade, that means we can't have 100% shade. Minshade also can't be
+  # 0, so make it dead close instead
+  eps <- .Machine$double.eps
+  shade_prop <- pmax(shade_prop, eps)
+  shade_prop <- pmin(shade_prop, 1 - eps)
+
   # set up the micro objects
 
   # mean air temperature, used for deep and initial soil temperatures
@@ -107,7 +119,7 @@ create_micro <- function(
     weather_height_m = weather_height_m)
 
   # empty matrix of tides since we don't use them
-  tides <- matrix(data = 0,
+  tides <- matrix(data = 0L,
                   nrow = 24 * n_days,
                   ncol = 3)
 
@@ -121,8 +133,8 @@ create_micro <- function(
   RHhr <- rep(0, 24 * n_days)
   WNhr <- rep(0, 24 * n_days)
   CLDhr <- rep(0, 24 * n_days)
-  SOLRhr <- rep(0, 24 * n_days)
   RAINhr <- rep(0, 24 * n_days)
+  SOLRhr <- rep(0, 24 * n_days)
   ZENhr <- rep(-1, 24 * n_days)
   IRDhr <- rep(-1, 24 * n_days)
 
@@ -148,9 +160,9 @@ create_micro <- function(
     DEP = soil_objects$soil_depths_cm,
     Nodes = soil_objects$soil_nodes,
 
-    # set the shade to a percentage and repeat to a vector (both the same as we
-    # will only run once)
-    MAXSHADES = rep(100 * shade_prop, n_days),
+    # set the shade to a percentage and repeat to a vector (set max to 100 as it
+    # needs to be greater than min, and will only run once)
+    MAXSHADES = rep(100, n_days),
     MINSHADES = rep(100 * shade_prop, n_days),
 
     # pass in the weather data vectors as maxima and minima
@@ -235,7 +247,7 @@ create_microinput <- function(
     mean_temp_c,
     # angle (degrees) up to the horizon in 15 degree rotational angles, starting
     # at 0 (north) - horixzon angle of 0 implies no buildings/hills
-    hori = rep(0, 24),
+    hori = rep(0L, 24),
     even_rain = TRUE,
     # reference height in metres at which air temperature, wind speed and
     # relative humidity input data are measured
