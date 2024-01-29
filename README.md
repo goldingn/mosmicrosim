@@ -31,6 +31,8 @@ The to do list for the rest of the package is as follows:
 - [x] Import NicheMapR and set up package
 - [x] Write a shim for functions like `NicheMapR::microclimate()` to
   enable incorporation of other sources of climate timeseries data
+- [ ] Write functions to read in sources of climate data used in
+  NicheMapR
 - [ ] Streamline simulation of microclimate components *not* including
   local water surface area, and water and air temperature, and humidity
 - [ ] Implement simulation of local water surface area, and water and

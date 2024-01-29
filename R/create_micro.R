@@ -53,14 +53,7 @@ create_micro <- function(
   n_days <- length(dates)
 
   # check the dates are contiguous, increasing, and integer days
-  contiguous_dates <- identical(dates,
-                                seq(dates[1],
-                                    dates[n_days],
-                                    by = 1))
-  if (!contiguous_dates) {
-    stop("dates must be contiguous, increasing, and non-repeating ",
-         "(a vector of consecutive days)")
-  }
+  check_contiguous_dates(dates)
 
   # check the data vectors are of the same length as the dates
   vectors <- list(
