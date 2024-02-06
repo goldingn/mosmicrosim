@@ -5,6 +5,9 @@ library(mgcv)
 
 source("R/utils.R")
 
+# note there is a google earth engine for terraclimate...
+# https://developers.google.com/earth-engine/datasets/catalog/IDAHO_EPSCOR_TERRACLIMATE#bands
+
 # get the URL to the terraclimate monthly summary data
 terraclimate_url <- function(variable = c("tmax", "tmin", "ppt", "ws", "vpd", "srad")) {
   variable <- match.arg(variable)
@@ -158,6 +161,66 @@ terraclimate_build_slice <- function(longitude,
 
 }
 
+# adjust the wind speed from the height at which it was measured to the height
+# required for modelling, based on the terrain (default to level grass and
+# NicheMapR terraclimate default heights).
+adjust_wind_speed <- function(wind_speed,
+                              height_required = 2,
+                              height_measured = 10,
+                              terrain = c("level grass",
+                                          "open water",
+                                          "crops/bushes",
+                                          "trees/buildings/mountains")) {
+
+  # From NicheMapR:
+  # Correct for fact that wind is measured at 10m height
+  # wind shear equation: v / vo = (h / ho)^a
+  # where
+  # v = the velocity at height h (m/s)
+  # vo = the velocity at height ho (m/s)
+  # a = the wind shear exponent
+  # source http://www.engineeringtoolbox.com/wind-shear-d_1215.html
+
+  # Terrain                       Wind Shear Exponent
+  # -----------------------------|---------------------------
+  # Open water                    0.1
+  # Smooth, level, grass-covered  0.15 (or more commonly 1/7)
+  # Row crops 	                  0.2
+  # Low bushes with a few trees 	0.2
+  # Heavy trees 	                0.25
+  # Several buildings 	          0.25
+  # Hilly, mountainous terrain 	  0.25
+
+  terrain <- match.arg(terrain)
+  exponent <- switch(terrain,
+                     "open water" = 0.1,
+                     "level grass" = 0.15,
+                     "crops/bushes" = 0.2,
+                     "trees/buildings/mountains" = 0.25)
+
+  # wind shear equation: v / vo = (h / ho)^a
+  wind_speed * (height_required / height_measured) ^ exponent
+
+}
+
+# get the clear sky radiation over time from the nichemapr climate object, and
+# aggregate to these months
+clear_sky_radiation
+
+
+# Calculate the average percentage of the sky covered by cloud. solar_radiation
+# is terraclimate's downward surface shortwave radiation (W/m^2).
+# clear_sky_radiation is the solar radiation in a clear sky in the same units,
+# from Nichemapr. multiplier is a manual muliplier on the output percentage. The
+# results will tehnbe clamped to between 0 and 100 percent.
+cloud_cover <- function(solar_radiation, clear_sky_radiation, multiplier = 1) {
+  cloud <- (1 - solar_radiation / clear_sky_radiation) * 100
+  cloud <- cloud * multiplier
+  cloud <- pmin(cloud, 100)
+  cloud <- pmax(cloud, 0)
+  cloud
+}
+
 # spline through dates, fitting a periodic spline to seasonality
 spline_seasonal <- function(values, dates, dates_predict,
                             knots_per_year_trend = 2,
@@ -234,11 +297,23 @@ climate_monthly$vp <- vapour_pressure(climate_monthly$tmean, climate_monthly$vpd
 climate_monthly$rhmax <- relative_humidity(climate_monthly$tmax, climate_monthly$vp)
 climate_monthly$rhmin <- relative_humidity(climate_monthly$tmin, climate_monthly$vp)
 
+# adjust wind speed to measured height and split by max/min
+climate_monthly$wsmax <- adjust_wind_speed(climate_monthly$ws)
+climate_monthly$wsmin <- climate_monthly$wsmax * 0.1
+
+# compute cloud cover from solar radiation and mean clear sky from Hulme, with
+# manual multipliers for daily variation as used in NicheMapR
+climate_monthly$ccmax <- cloud_cover(climate_monthly$srad, clearsky, multiplier = 2)
+climate_monthly$ccmin <- cloud_cover(climate_monthly$srad, clearsky, multiplier = 0.5)
+
+
+# compute cloud cover from solar radiation
+
 # spline these to the requested dates
 climate_daily <- data.frame(
   date = dates
 )
-new_var <- c("tmax", "tmin", "rhmax", "rhmin", "ws", "srad")
+new_var <- c("tmax", "tmin", "rhmax", "rhmin", "wsmin", "wsmax", "srad")
 for (var in new_var) {
   climate_daily[, var] <- spline_seasonal(values = climate_monthly[, var],
                                           dates = climate_monthly[, "mid_date"],
@@ -282,35 +357,10 @@ par(op)
 # twentieth century space-time climate variability. Part 1: development of a
 # 1961-90 mean monthly terrestrial climatology. Journal of Climate 12:829-856.).
 
-# need to do some more transformations and wind min/max as per NicheMapR
 
-# WNMAXX <- WIND
-# WNMINN<-WNMAXX * 0.1 # impose diurnal cycle
 
-# Correct for fact that wind is measured at 10m height
-# wind shear equation: v / vo = (h / ho)^a
-# where
-# v = the velocity at height h (m/s)
-# vo = the velocity at height ho (m/s)
-# a = the wind shear exponent
 
-# Terrain                       Wind Shear Exponent
-# -----------------------------|---------------------------
-# Open water                    0.1
-# Smooth, level, grass-covered  0.15 (or more commonly 1/7)
-# Row crops 	                  0.2
-# Low bushes with a few trees 	0.2
-# Heavy trees 	                0.25
-# Several buildings 	          0.25
-# Hilly, mountainous terrain 	  0.25
-
-# source http://www.engineeringtoolbox.com/wind-shear-d_1215.html
-
-# WNMINN <- WNMINN * (2 / 10) ^ 0.15
-# WNMAXX <- WNMAXX * (2 / 10) ^ 0.15
-
-# add this wind shear exponent to the microclimate simulation set up?
-
+# add a wind shear exponent adjustment to the microclimate simulation set up?
 
 # then build a wrapper function that:
 
