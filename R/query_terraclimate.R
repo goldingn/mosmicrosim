@@ -203,16 +203,170 @@ adjust_wind_speed <- function(wind_speed,
 
 }
 
-# get the clear sky radiation over time from the nichemapr climate object, and
-# aggregate to these months
-clear_sky_radiation
+# download the NicheMapR global climate zipfile
+download_nichemapr_data <- function(zip_file_path) {
 
+  # download the zipfile to the zip file path
+  file_url <- "https://github.com/mrke/NicheMapR/releases/download/v2.0.0/global.climate.zip"
+  download.file(file_url, zip_file_path, mode = "wb")
+
+}
+
+# unzip the NicheMapR global climate zipfile to an NCDF in the R session's
+# temp directory
+unzip_nichemapr_data <- function(zip_file_path, ncdf_file_path) {
+  unzip(zip_file_path,
+        files = basename(ncdf_file_path),
+        exdir = dirname(ncdf_file_path))
+}
+
+# get the NicheMapR global climate data object, downloading it if needed
+get_nichemapr_data <- function() {
+
+  # work out where the zipfile should be (wither NicheMapR extdata folder or a
+  # tempfile) and where the unzipped ncdf file should be (a tempfile)
+  zip_file_path <- nichemapr_data_filename()
+  ncdf_file_path <- file.path(tempdir(), "global_climate.nc")
+
+  # download it if it doesn't exist
+  if (!file.exists(zip_file_path)) {
+    download_nichemapr_data(zip_file_path)
+  }
+
+  # unzip it if it doesn't exist
+  if (!file.exists(ncdf_file_path)) {
+    unzip_nichemapr_data(zip_file_path, ncdf_file_path)
+  }
+
+  # read it into memory
+  global_climate <- terra::rast(ncdf_file_path)
+
+  # give it names matching definition in NicheMapR micro_global, to query later,
+  names(global_climate) <- c(
+    "altitude",
+    paste0("rainfall", 1:12),
+    paste0("rainy_days", 1:12),
+    paste0("windspeed", 1:12),
+    paste0("temperature_min", 1:12),
+    paste0("temperature_max", 1:12),
+    paste0("rh_min", 1:12),
+    paste0("rh_max", 1:12),
+    paste0("cloud_cover", 1:12)
+  )
+
+  global_climate
+
+}
+
+# get and cache the NicheMapR global climate data object, using a tempfile
+get_cloud_cover_raster <- function() {
+
+  nichemapr_data <- get_nichemapr_data()
+
+  # pull out the cloud cover layers
+  cloud_cover_data <- nichemapr_data[[paste0("cloud_cover", 1:12)]]
+
+  # divide by 10 to get percentages
+  cloud_cover_data / 10
+
+}
+
+get_altitude_raster <- function() {
+
+  nichemapr_data <- get_nichemapr_data()
+
+  # pull out the altitude layer
+  altitude_data <- nichemapr_data[["altitude"]]
+
+  altitude_data
+
+}
+
+# lookup altitude in metres
+altitude_m <- function(longitude, latitude) {
+  altitude_raster <- get_altitude_raster()
+  altitude_data <- terra::extract(altitude_raster,
+                                  data.frame(longitude, latitude))
+  altitude_data$altitude
+}
+
+# calculate the mean of the variable only for the time when it has a positive
+# value
+mean_if_positive <- function(x) {
+  mean(x[x > 0])
+}
+
+# compute monthly mean clear sky solar radiation max/min for this location using
+# NicheMapR microclimate model in solonly mode. the microclimate model gives
+# hourly data for representative days. This is summarised across th
+# representative days as the mean radiation *during daylight hours*, since it is
+# not made explicit how these summary data are represented in terraclimate or
+# the reanalysis model it is informed by. This assumption matches with cloud
+# cover data for Perth from both Hulmes (core data in the NicheMapR package) and
+# from the BOM's directly observed OKTA maps:
+# http://www.bom.gov.au/climate/maps/averages/cloud/
+clear_sky_radiation_12mo <- function(latitude, longitude) {
+
+  # first, mock up a full micro input to microclimate for 12 arbitrary days,
+  # setting cloud cover to 0, and unused dummy vectors for all other inputs
+
+  dummy_dates <- as.Date("2020-01-01") + 1:12
+  micro <- create_micro(latitude,
+                        longitude,
+                        altitude_m = 0,
+                        dates = dummy_dates,
+                        daily_temp_max_c = rep(0, 12),
+                        daily_temp_min_c = rep(0, 12),
+                        daily_rh_max_perc = rep(0, 12),
+                        daily_rh_min_perc = rep(0, 12),
+                        daily_cloud_max_perc = rep(0, 12),
+                        daily_cloud_min_perc = rep(0, 12),
+                        daily_wind_max_ms = rep(0, 12),
+                        daily_wind_min_ms = rep(0, 12),
+                        daily_rainfall_mm = rep(0, 12))
+
+  # edit to not run anything except solar radiation
+  micro$microinput["solonly"] <- 1
+
+  # don't run daily - use these 12 days of the year as the month midpoints
+  micro$microinput["microdaily"] <- 0
+  micro$doy <- c(15, 46, 74, 105, 135, 166, 196, 227, 258, 288, 319, 349)
+
+  # run the microclimate model on this
+  micro_res <- microclimate(micro)
+
+  # pull out the solar radiation for this clear sky scenario and aggregate to
+  # monthly means
+  means <- tapply(X = micro_res$metout[, "SOLR"],
+                  INDEX = micro_res$metout[, "DOY"],
+                  FUN = mean_if_positive)
+
+  means
+
+}
+
+# compare this with running micro_global (slower) as called recursively in
+# micro_global for microclima diffusity output
+# clearsky_radiation_monthly <- clear_sky_radiation_12mo(latitude = latitude,
+#                                                        longitude = longitude)
+# solar_attenuation_data <- solar_attenuation(latitude, longitude)
+# micro_clearsky <- micro_global(loc = c(longitude, latitude),
+#                                clearsky = 1,
+#                                run.gads = 0,
+#                                TAI = solar_attenuation_data$solar_attenuation,
+#                                timeinterval = 12,
+#                                solonly = 1)
+# micro_global_res <- tapply(X = micro_clearsky$metout[, "SOLR"],
+#                            INDEX = micro_clearsky$metout[, "DOY"],
+#                            FUN = mean_if_positive)
+# plot(clearsky_radiation_monthly ~ micro_global_res)
+# abline(0, 1)
 
 # Calculate the average percentage of the sky covered by cloud. solar_radiation
 # is terraclimate's downward surface shortwave radiation (W/m^2).
 # clear_sky_radiation is the solar radiation in a clear sky in the same units,
 # from Nichemapr. multiplier is a manual muliplier on the output percentage. The
-# results will tehnbe clamped to between 0 and 100 percent.
+# results will then be clamped to between 0 and 100 percent.
 cloud_cover <- function(solar_radiation, clear_sky_radiation, multiplier = 1) {
   cloud <- (1 - solar_radiation / clear_sky_radiation) * 100
   cloud <- cloud * multiplier
@@ -293,6 +447,7 @@ for(var in vars) {
 # mean temperature and vapour pressure
 climate_monthly$tmean <- (climate_monthly$tmax + climate_monthly$tmin) / 2
 climate_monthly$vp <- vapour_pressure(climate_monthly$tmean, climate_monthly$vpd)
+
 # RH at max/min temps
 climate_monthly$rhmax <- relative_humidity(climate_monthly$tmax, climate_monthly$vp)
 climate_monthly$rhmin <- relative_humidity(climate_monthly$tmin, climate_monthly$vp)
@@ -301,19 +456,48 @@ climate_monthly$rhmin <- relative_humidity(climate_monthly$tmin, climate_monthly
 climate_monthly$wsmax <- adjust_wind_speed(climate_monthly$ws)
 climate_monthly$wsmin <- climate_monthly$wsmax * 0.1
 
-# compute cloud cover from solar radiation and mean clear sky from Hulme, with
-# manual multipliers for daily variation as used in NicheMapR
-climate_monthly$ccmax <- cloud_cover(climate_monthly$srad, clearsky, multiplier = 2)
-climate_monthly$ccmin <- cloud_cover(climate_monthly$srad, clearsky, multiplier = 0.5)
+# compute cloud cover from solar radiation (terraclimate) and expected clear sky
+# radiation (microclimate code using coordinates and aerosol data) and manual
+# multipliers to enforce daily variation, as used in NicheMapR
 
+# monthly summaries of clear sky radiation (doesn't depend on weather)
+clearsky_radiation_monthly <- clear_sky_radiation_12mo(latitude = latitude,
+                                                       longitude = longitude)
+monthly_index <- lubridate::month(climate_monthly$mid_date)
 
-# compute cloud cover from solar radiation
+# convert to cloud cover percentage
+climate_monthly$ccmax <- cloud_cover(climate_monthly$srad,
+                                     clearsky_radiation_monthly[monthly_index],
+                                     multiplier = 1.2)
+climate_monthly$ccmin <- cloud_cover(climate_monthly$srad,
+                                     clearsky_radiation_monthly[monthly_index],
+                                     multiplier = 0.8)
+
+# # compare with the Hulmes interpolated cloud cover raster at this site
+# cloud_cover_data <- get_cloud_cover_raster()
+# cloud_cover_hulmes <- terra::extract(cloud_cover_data,
+#                                      data.frame(longitude, latitude))
+# srad_sry <- tapply(climate_monthly$srad, monthly_index, FUN = mean)
+#
+# # our calculation from solar radiation is too high
+#
+# par(mfrow = c(1, 2))
+#
+# # from Hulmes:
+# plot(t(cloud_cover_hulmes[, -1]), ylim = c(0, 100))
+#
+# # from our calculation:
+# plot(cloud_cover(srad_sry, clearsky_radiation_monthly, multiplier = 1),
+#      ylim = c(0, 100))
 
 # spline these to the requested dates
 climate_daily <- data.frame(
   date = dates
 )
-new_var <- c("tmax", "tmin", "rhmax", "rhmin", "wsmin", "wsmax", "srad")
+new_var <- c("tmax", "tmin",
+             "rhmax", "rhmin",
+             "wsmin", "wsmax",
+             "ccmax", "ccmin")
 for (var in new_var) {
   climate_daily[, var] <- spline_seasonal(values = climate_monthly[, var],
                                           dates = climate_monthly[, "mid_date"],
@@ -321,7 +505,7 @@ for (var in new_var) {
 }
 
 # it would be nice if we could use the correct likelihood for disaggregation
-# here, but this is cheap and probably not much different
+# in these spline models, but this is cheap and probably not much different
 
 par(mfrow = c(1, 1))
 op <- par(mfrow = n2mfrow(length(new_var)),
@@ -348,16 +532,8 @@ par(op)
 
 # need to also obtain:
 #  altitude (DEM lookup, easy)
-#  cloud cover max/min (based on SRAD modification of existing cloudcover)
 
-# from the helpfile for NicheMapR::get.global.climate() :
-
-# Cloud cover comes from a bilinear interpolation of a lower resolution version
-# of this dataset (New, M., M. Hulme, and P. D. Jones. 1999. Representing
-# twentieth century space-time climate variability. Part 1: development of a
-# 1961-90 mean monthly terrestrial climatology. Journal of Climate 12:829-856.).
-
-
+alt <- altitude_m(longitude = longitude, latitude = latitude)
 
 
 # add a wind shear exponent adjustment to the microclimate simulation set up?

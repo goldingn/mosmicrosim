@@ -37,7 +37,7 @@ wavelengths_nm <- c(290, 295, 300, 305, 310, 315, 320, 330, 340, 350, 360,
 # eight surface meteorological ranges 2 to 13 kilometers. U. S. Airforce
 # Cambridge Research Laboratory, Bedford, Mass." From:
 # https://github.com/mrke/NicheMapR/blob/f57a2000aaab9d14d1b6390eded823877010d856/R/micro_terra.R#L1475
-# note there is another hardcoded non-GADS option gflaoting around in the
+# note there is another hardcoded non-GADS option floating around in the
 # NicheMapR codebase which is described as 'appropriate for Melbourne/Adelaide",
 # which we will ignore
 solar_attenuation_elterman <- c(0.42, 0.415, 0.412, 0.408, 0.404, 0.4, 0.395,
