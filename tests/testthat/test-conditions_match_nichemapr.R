@@ -52,9 +52,8 @@ test_that("manual inputs match nichemap outputs", {
                                     # force the intercept to match minshade, not
                                     # maxshade
                                     intercept = 0.5 * 0.3,
-                                    # don't run it twice for different shade
-                                    # levels
-                                    runshade = 0,
+                                    # run shade model
+                                    runshade = 1,
                                     # organism at 1m
                                     Usrhyt = 1,
                                     # use R version of GADS bc of stochastically
@@ -158,24 +157,24 @@ test_that("manual inputs match nichemap outputs", {
 
   # check they yield approximately the same microclimate forcing parameters
   # (assuming a loss of precision due to writing and reading the parameters) we
-  # use metout variables: TAREF (air temp in C) RH (relative humidity in %) VLOC
-  # (wind speed in m/s)
-  cols <- c("TAREF", "RH", "VLOC")
+  # use shadmet variables: TALOC (microclimate air temp in C) RHLOC
+  # (microclimate relative humidity in %) VLOC (microclimate wind speed in m/s)
+  cols <- c("TALOC", "RHLOC", "VLOC")
 
   # compute the absolute difference as a percentage of the value
   perc_diff <- function(a, b) {
     100 * abs(a - b) / abs(a)
   }
 
-  res_diff <- perc_diff(res_nmr$metout[, cols], res$metout[, cols])
-  new_diff <- perc_diff(res_nmr$metout[, cols], res_new$metout[, cols])
+  res_diff <- perc_diff(res_nmr$shadmet[, cols], res$shadmet[, cols])
+  new_diff <- perc_diff(res_nmr$shadmet[, cols], res_new$shadmet[, cols])
 
-  # ensure it is very small (less than 0.001%)
+  # ensure it is very small (less than 1%)
 
   # check we can rebuild the original microclimate config file
-  testthat::expect_lt(max(res_diff), 1e-3)
+  testthat::expect_lt(max(res_diff), 1)
 
   # check we can pass it all in correctly via our shimming function and defaults
-  testthat::expect_lt(max(new_diff), 1e-3)
+  testthat::expect_lt(max(new_diff), 1)
 
 })

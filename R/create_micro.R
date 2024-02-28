@@ -25,7 +25,7 @@
 #' @param even_rain whether to spread daily rainfall out evenly over 24. If
 #'   FALSE, have it all fall at midnight.
 #' @param soil_reflectance soil solar reflectance, decimal %
-#' @param solar_attenuation_data dataframe giving on solar attenuation at the
+#' @param solar_attenuation_data dataframe giving solar attenuation at the
 #'   111 wavelengths for the given location, as created using
 #'   `solar_attentuation()`
 #' @export
@@ -296,9 +296,9 @@ create_microinput <- function(
                   snowmelt = microinput_defaults$snowmelt,
                   undercatch = microinput_defaults$undercatch,
                   rainmult = microinput_defaults$rainmult,
-                  # don't run multiple times with different shades, just run it
-                  # at the minimum shade level
-                  runshade = 0,
+                  # need to run shade to get the values at minimum shade level,
+                  # even though docs say otherwise
+                  runshade = 1,
                   # run the soil moisture model
                   runmoist = 1,
                   maxpool = microinput_defaults$maxpool,
