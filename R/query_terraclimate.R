@@ -25,17 +25,29 @@ terraclimate_open <- function(variable = c("tmax", "tmin", "ppt", "ws", "vpd", "
 }
 
 terraclimate_available_indices <- function() {
-  # open a connection with the default cube (tmax), and close it again on
-  # exiting this function
-  con <- terraclimate_open()
-  on.exit(ncdf4::nc_close(con))
 
-  # find times and places for which there are data, and return
-  list(
-    times = ncvar_get(con, "time"),
-    longitudes = ncvar_get(con, "lon"),
-    latitudes = ncvar_get(con, "lat")
-  )
+  # cache the available indices
+  tc_avail_indices <- options()$.tc_avail_indices
+
+  # download if required
+  if (is.null(tc_avail_indices)) {
+
+    # open a connection with the default cube (tmax), and close it again on
+    # exiting this function
+    con <- terraclimate_open()
+    on.exit(ncdf4::nc_close(con))
+
+    # find times and places for which there are data, and return
+    tc_avail_indices <-list(
+      times = ncvar_get(con, "time"),
+      longitudes = ncvar_get(con, "lon"),
+      latitudes = ncvar_get(con, "lat")
+    )
+
+    options(.tc_avail_indices = tc_avail_indices)
+  }
+
+  tc_avail_indices
 }
 
 # given a slice (index to initial time, lat and long, and number of elements in
@@ -430,8 +442,8 @@ spline_seasonal <- function(values, dates, dates_predict,
 # Get weather for central Perth WA for 2020
 longitude <- 115.86
 latitude <- -31.95
-dates <- seq(as.Date("2023-01-01"),
-             as.Date("2023-12-31"),
+dates <- seq(as.Date("2020-01-01"),
+             as.Date("2024-12-31"),
              by = "1 day")
 
 # build the indexing slice
@@ -489,7 +501,7 @@ climate_monthly$ccmin <- cloud_cover(climate_monthly$srad,
 
 # convert precipitation to log scale to spline
 climate_monthly$rainfall_mm <- climate_monthly$ppt
-climate_monthly$log_rainfall_mm <- log(climate_monthly$rainfall_mm)
+climate_monthly$log_rainfall_mm <- log1p(climate_monthly$rainfall_mm)
 
 # # compare with the Hulmes interpolated cloud cover raster at this site
 # cloud_cover_data <- get_cloud_cover_raster()
@@ -524,7 +536,7 @@ for (var in new_var) {
 }
 
 # convert log rainfall back
-climate_daily$rainfall_mm <- exp(climate_daily$log_rainfall_mm)
+climate_daily$rainfall_mm <- expm1(climate_daily$log_rainfall_mm)
 
 # it would be nice if we could use the correct likelihood for disaggregation
 # in these spline models, but this is cheap and probably not much different
@@ -599,9 +611,6 @@ system.time(
   sim2 <- NicheMapR::microclimate(micro2)
 )
 
-head(sim$shadmet[, "TALOC"])
-head(sim2$shadmet[, "TALOC"])
-
 # plot some examples of microclimate conditions, with the external conditions
 # over the top
 
@@ -648,7 +657,6 @@ lines(climate_daily$wsmax[days] ~ dates_plot,
 lines(climate_daily$wsmin[days] ~ dates_plot,
       lty = 2)
 title(main = "Wind speed")
-
 
 
 # need to add in the other microclimate parameters (stone substrate type, etc)
