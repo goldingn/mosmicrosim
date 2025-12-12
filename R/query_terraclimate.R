@@ -3,6 +3,9 @@ library(ncdf4)
 library(lubridate)
 library(mgcv)
 library(NicheMapR)
+library(tidyverse)
+library(terra)
+library(abind)
 
 source("R/utils.R")
 source("R/create_micro.R")
@@ -129,9 +132,77 @@ check_dates <- function(dates, terraclimate_available) {
 
 }
 
-terraclimate_build_slice <- function(longitude,
-                                     latitude,
-                                     dates) {
+# build a terraclimate slice for rectangular spatial extent, over the
+# requested dates
+terraclimate_build_slice_extent <- function(extent,
+                                            dates) {
+
+  # check the extent object
+  if(!inherits(extent, "SpatExtent")) {
+    stop("extent should be a terra SpatExtent object, e.g. created like this:
+         extent <- ext(<xmin>, <xmax>, <ymin>, <ymax>)",
+         call. = FALSE)
+  }
+
+  # times and places for which there are data in terraclimate
+  available <- terraclimate_available_indices()
+
+  # check the user-provided dates are contiguous, increasing, and we can get
+  # them from terraclimate
+  check_dates(dates, available)
+
+  # the timeseries is summarised by month and indexed by the first day of the
+  # month, so find all summary dates relevant to our target dates, with some
+  # buffering either side to make sure the splining is consistent for those dates
+  required_summary_dates <- monthly_summary_days(dates)
+
+  # the terraclimate temporal index is integer days since the first day of 1900
+  # (ie. indexed from 0, unlike R's indexing from 1, so subtract 1) so find our
+  # month-start dates as indices
+  time_index_1900 <- match(required_summary_dates, days_since_1900()) - 1
+
+  # Remove any of these months that are not available. The dates themselves are
+  # all included (checked above), so this is just removing buffer dates we can't
+  # access.
+  indices_keep <- time_index_1900 %in% available$times
+  required_summary_dates <- required_summary_dates[indices_keep]
+  time_index_1900 <- time_index_1900[indices_keep]
+
+  # now index the elements of the NCDF array
+  time_index <- match(time_index_1900, available$times)
+
+  # Find the nearest terraclimate lat longs to the edges of the extent
+  ext_list <- as.list(extent)
+  xmin_index <- nearest_coord(ext_list$xmin, available$longitudes)
+  xmax_index <- nearest_coord(ext_list$xmax, available$longitudes)
+  # note: indices are ordered left -> right (like coordinates) and top -> bottom
+  # (the reverse of coordinates), so we need to flip the latitudes
+  ymin_index <- nearest_coord(ext_list$ymax, available$latitudes)
+  ymax_index <- nearest_coord(ext_list$ymin, available$latitudes)
+
+  xrange <- xmax_index - xmin_index + 1
+  yrange <- ymax_index - ymin_index + 1
+
+  # return a list with the initial time/place location and size of slice
+  list(
+    start = c(xmin_index, ymin_index, time_index[1]),
+    count = c(xrange, yrange, length(time_index)),
+    dates = list(
+      start = required_summary_dates,
+      end = lubridate::ceiling_date(required_summary_dates, unit = "1 month") -1
+    ),
+    longitudes = seq(ext_list$xmin, ext_list$xmax, length.out = xrange),
+    # flip back the latitudes
+    latitudes = seq(ext_list$ymax, ext_list$ymin, length.out = yrange)
+  )
+
+}
+
+# build a terraclimate slice for a single point in space, over the requested
+# dates
+terraclimate_build_slice_point <- function(longitude,
+                                           latitude,
+                                           dates) {
 
   # times and places for which there are data in terraclimate
   available <- terraclimate_available_indices()
@@ -175,6 +246,7 @@ terraclimate_build_slice <- function(longitude,
   )
 
 }
+
 
 # adjust the wind speed from the height at which it was measured to the height
 # required for modelling, based on the terrain (default to level grass and
@@ -434,6 +506,103 @@ spline_seasonal <- function(values, dates, dates_predict,
 
 }
 
+# given a template raster object, build a terraclimate-harmonised 5km template.
+# Ie. a raster covering all the non-NA cells in the template raster whose cells
+# align with those in terraclimate
+make_terraclimate_template <- function(template) {
+
+  # make template binary
+  template <- template * 0 + 1
+
+  # trim, expand, then buffer these by one cell, to ensure we can interpolate as
+  # much as possible when resampling back to this raster from the terraclimate one
+  template <- template |>
+    terra::trim() |>
+    terra::extend(1) |>
+    terra::focal(w = 3,
+                 fun = max,
+                 na.rm = TRUE)
+
+  # now find the equivalent terraclimate raster cells
+
+  # find the grid setup in terraclimate
+  terraclimate_available <- terraclimate_available_indices()
+
+  # create an empty raster that aligns with terraclimate and has extent no smaller
+  # than our raster
+  dims <- as.list(ext(template))
+  x_valid <- terraclimate_available$longitudes >= dims$xmin &
+    terraclimate_available$longitudes <= dims$xmax
+  y_valid <- terraclimate_available$latitudes >= dims$ymin &
+    terraclimate_available$latitudes <= dims$ymax
+  tc_ext <- ext(c(range(terraclimate_available$longitudes[x_valid]),
+                  range(terraclimate_available$latitudes[y_valid])))
+
+  # find the non-NA elements in this raster by building a slice with one date and
+  # extracting one value
+  raster_slice <- terraclimate_build_slice_extent(tc_ext,
+                                                  dates = as.Date("2020-01-01"))
+  # this function is set up to extract extra dates to ensure we can spline to
+  # these dates, but we only need one value for this so manually switch to the one
+  # date at the middle of the time slice
+  timesteps <- raster_slice$count[3]
+  raster_slice$start[3] <- raster_slice$start[3] + ceiling(timesteps / 2)
+  raster_slice$count[3] <- 1
+  # get the values
+  vals <- terraclimate_fetch(raster_slice)
+
+  # put them in a raster
+  tc_template <- rast(nrows = sum(y_valid),
+                      ncols = sum(x_valid),
+                      extent = tc_ext,
+                      vals = t(vals))
+
+  # resample the target raster to this one
+  new_template_mask <- terra::resample(template,
+                                       tc_template,
+                                       method = "max")
+
+  # and use it to mask the terraclimate values, set values to 0, and return
+  tc_template_masked <- terra::mask(tc_template, new_template_mask)
+  tc_template_masked <- tc_template_masked * 0
+
+  # now trim it again, and return
+  tc_template <- terra::trim(tc_template_masked)
+  tc_template
+
+}
+
+# given a vector defining an extent object, and a terraclimate template raster,
+# return a logical for whether there are any non-na values in that extent
+check_tile <- function(vec, tc_template) {
+  this_tile <- ext(vec)
+  this_raster <- terra::crop(tc_template, this_tile)
+  length(cells(this_raster)) > 0
+}
+
+# given a vector defining an extent object, and a terraclimate template raster,
+# return a vector for a trimmed extent object to the smallest rectangle
+# including only non-NA cells
+trim_tile <- function(vec, tc_template) {
+
+  # make a raster with this extent, trim it, and convert back ot an extent
+  tile <- terra::ext(vec)
+  raster <- terra::crop(tc_template, tile)
+  raster_trimmed <- terra::trim(raster)
+  tile_trimmed <- terra::ext(raster_trimmed)
+
+  # convvert to a spatvector, negative buffer by a quarter of a cell so each
+  # cell centroid is in only one tile, and convert back ot an extent
+  buffer_distance <- -1 * res(tc_template) / 4
+  spatvector_trimmed <- vect(tile_trimmed)
+  spatvector_trimmed_shrunk <- terra::buffer(spatvector_trimmed,
+                                                  buffer_distance)
+  tile_trimmed_shrunk <- terra::ext(spatvector_trimmed_shrunk)
+
+  # return as a vector
+  as.vector(tile_trimmed_shrunk)
+}
+
 
 
 # demo
@@ -446,10 +615,10 @@ dates <- seq(as.Date("2020-01-01"),
              as.Date("2024-12-31"),
              by = "1 day")
 
-# build the indexing slice
-slice <- terraclimate_build_slice(longitude = longitude,
-                                  latitude = latitude,
-                                  dates = dates)
+# build the indexing slice at this location
+slice <- terraclimate_build_slice_point(longitude = longitude,
+                                        latitude = latitude,
+                                        dates = dates)
 
 # get all variables
 vars <- c("tmax", "tmin",  # temperature
@@ -677,5 +846,181 @@ title(main = "Wind speed")
 # 3. Caches these, and only downloads new pixels/times as needed (at least by
 # month and pixel)
 
+
+
+# batch process in tiles
+
+
+
+# load a template raster for Africa
+template <- rast("~/Dropbox/github/ir_cube/data/clean/raster_mask.tif")
+
+# create a corresponding terraclimate raster (aligned with terraclimate grid
+# location, and excluding missing cells in terrclimate or more than 1 cell away
+# from template cells with data)
+tc_template <- make_terraclimate_template(template)
+
+# now batch-process this by defining tiles covering the continent,
+# and extracting whole slices for those tiles for the required times
+
+dates <- seq(as.Date("2020-01-01"),
+             as.Date("2024-12-31"),
+             by = "1 day")
+
+
+# define the rough number of tiles required
+target_n_tiles <- 100
+
+# work out the fraction of non-missing cells in the raster, and adjust up the
+# number of tiles
+n_cells_all <- prod(dim(tc_template)[c(1:2)])
+n_cells_valid <- length(cells(tc_template))
+prop_cells_valid <- n_cells_valid / n_cells_all
+target_n_tiles_adj <- target_n_tiles / prop_cells_valid
+
+# aggregate a raster into approximately this number of square tiles
+agg_factor <- round(sqrt(n_cells_all / target_n_tiles_adj))
+tiles_raster <- terra:::aggregate(tc_template, agg_factor)
+tiles <- terra::getTileExtents(tc_template, tiles_raster)
+
+# weed out tiles with no values in them
+tiles_valid <- apply(tiles,
+                     MARGIN = 1,
+                     FUN = check_tile,
+                     tc_template = tc_template)
+tiles <- tiles[tiles_valid, ]
+
+# trim them down to only the valid cells, and shrink them all by less than half
+# a cell to prevent excessive processing of cells
+tiles <- t(apply(tiles,
+                 MARGIN = 1,
+                 FUN = trim_tile,
+                 tc_template = tc_template))
+
+
+n_tiles <- nrow(tiles)
+
+# not too bad
+target_n_tiles
+n_tiles
+
+# check how they look
+par(mfrow = c(1, 1))
+plot(tc_template,
+     box = FALSE,
+     axes = FALSE)
+for(i in seq_len(n_tiles)) {
+  plot(ext(tiles[i, ]),
+       add = TRUE)
+}
+# beautiful.
+
+# zoom in to check the margins are non-overlapping and contain centoids, as
+# expected
+zoom <- ext(-7.5,
+            -7.2,
+            32.3,
+            32.6)
+plot(tc_template,
+     ext = zoom,
+     box = FALSE,
+     axes = FALSE)
+for(i in seq_len(n_tiles)) {
+  plot(ext(tiles[i, ]),
+       add = TRUE)
+}
+zoom_rast <- crop(tc_template, zoom)
+zoom_points <- xyFromCell(zoom_rast, cells(zoom_rast))
+points(zoom_points,
+       pch = 16)
+
+
+# now process a single tile
+i <- 1
+tile <- ext(tiles[i, ])
+
+# build the slice for all pixels (including NAs) in this tile
+tile_slice <- terraclimate_build_slice_extent(
+  extent = tile,
+  dates = dates
+)
+
+# download each of the variables for this slice
+stack_list <- list()
+for(var in vars) {
+  stack_list[[var]] <- terraclimate_fetch(tile_slice, var)
+}
+
+# combine into tidy long-format tibble
+stack <- do.call(abind,
+                 c(stack_list, list(along = 4)))
+dimnames(stack) <- list(
+  longitude = tile_slice$longitudes,
+  latitude = tile_slice$latitudes,
+  start = as.character(tile_slice$dates$start),
+  variable = vars
+)
+
+tile_data_tbl <- stack |>
+  as.data.frame.table(
+    stringsAsFactors = FALSE
+  ) |>
+  as_tibble() |>
+  rename(
+    value = Freq
+  ) |>
+  filter(
+    !is.na(value)
+  ) |>
+  mutate(
+    longitude = as.numeric(longitude),
+    latitude = as.numeric(latitude),
+    start = as.Date(start)
+  ) |>
+  # add on the end dates
+  left_join(
+    as_tibble(tile_slice$dates),
+    by = "start"
+  ) |>
+  relocate(
+    end,
+    .after = start
+  ) |>
+  # add a cell id
+  group_by(
+    latitude,
+    longitude
+  ) |>
+  mutate(
+    cell_id = cur_group_id(),
+    .before = everything()
+  ) |>
+  ungroup()
+
+
+# plot some things
+
+tile_data_tbl |>
+  filter(
+    cell_id %in% sample.int(n_distinct(tile_data_tbl$cell_id), 5)
+  ) |>
+  mutate(
+    date = start + (end - start) / 2,
+    .after = end
+  ) |>
+  ggplot(
+    aes(
+      x = date,
+      y = value,
+      group = cell_id,
+      colour = variable
+    )
+  ) +
+  geom_line() +
+  facet_wrap(
+    ~variable,
+    scales = "free_y"
+  ) +
+  theme_minimal()
 
 
