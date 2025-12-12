@@ -836,24 +836,6 @@ lines(climate_daily$wsmin[days] ~ dates_plot,
 title(main = "Wind speed")
 
 
-# need to add in the other microclimate parameters (stone substrate type, etc)
-# to microclimate simulation
-
-# add a wind shear exponent adjustment to the microclimate simulation set up?
-
-
-
-# then build a wrapper function that:
-
-# 1. Downloads terraclimate data in tiles rather than pixels (and batch
-# processes NicheMapR solar radiation stuff)
-
-# 2. Downloads, processes, and saves as monthly max and min (we can spline
-# later) summary data for required quantities
-
-# 3. Caches these, and only downloads new pixels/times as needed (at least by
-# month and pixel)
-
 
 # Note: we could use GPM IMERG remotely-sensed daily 12km precipitation data,
 # rather than Terraclimate 5km (downscaled from CRU TS4.0 reanalysis of weather
@@ -1071,3 +1053,36 @@ tile_data_tbl |>
     scales = "free_y"
   ) +
   theme_minimal()
+
+
+# To do:
+
+# Build wrapper functions to:
+
+# Create processing tiles
+
+# Within each tile:
+
+  # download and format all terraclimate data for the tile 2000-2025
+
+  # For each pixel in the tile:
+
+    # run spline interpolation to get daily outdoor data 2000-2025
+
+    # run NicheMapR to get hourly microclimate data 2000-2025
+
+    # run the population dynamic models to get hourly population data 2000-2025
+
+    # summarise the population dynamic outputs to monthly data 2000-2025
+
+  # write the monthly summaries to monthly tile raster 2000-2025 (300 per tile)
+
+# mosaic the rasters together into one band per tile
+
+
+# also:
+
+# need to add in the other microclimate parameters (stone substrate type, etc)
+# to microclimate simulation
+
+# add a wind shear exponent adjustment to the microclimate simulation set up?
