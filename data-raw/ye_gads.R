@@ -7,21 +7,33 @@
 # in solar_attenuation.R query this lookup whenever solar attenuation data are
 # needed.
 
+library(NicheMapR)
 library(tidyverse)
 library(terra)
 library(furrr)
 
+source("R/solar_attenuation.R")
+
 # create an empty raster to look up GADS data
 
-# the dimensions of the underlying GADS raster are stated in NicheMapR's R
+# GADS data are defined at these nodes, as stated at the top ofs NicheMapR's R
 # implementation of GADS
+res <- 5
+longitudes <- seq(-180, 175, by = res)
+latitudes <- seq(-90, 90, by = res)
+
+# NicheMapR finds the nearest node to a given set of coordinates to get the
+# corresponding solar attenuation information. So make our raster a grid with
+# these as the centroids
+pad <- res / 2
+
 ye_gads <- rast(
-  nrows = 36,
-  ncols = 71,
-  xmin = -180,
-  xmax = 175,
-  ymin = -90,
-  ymax = 90
+  nrows = length(latitudes),
+  ncols = length(longitudes),
+  xmin = min(longitudes) - pad,
+  xmax = max(longitudes) + pad,
+  ymin = min(latitudes) - pad,
+  ymax = max(latitudes) + pad
 )
 
 # put the cell number in each cell, so we can use extract to do a lookup
@@ -43,28 +55,19 @@ solar_attenuation_lookup <- terra::xyFromCell(
     longitude = x,
     latitude = y,
   ) |>
-  # add on cell IDs
+  # add on cell IDs (the slow way to make sure they are in the right order)
   mutate(
     cell_id = terra::extract(
       ye_gads,
       cells(ye_gads)
-      # ID = FALSE
     )[, 1],
     .before = everything()
   ) |>
+  # compute the solar attenuation curves
   mutate(
     solar_attenuation = future_map2(.x = latitude,
                                     .y = longitude,
                                     .f = solar_attenuation_gads)
-  ) |>
-  rowwise() |>
-  # add on wavelengths, since map2 is apparently disposing of them
-  mutate(
-    wavelength_nm = list(wavelengths_nm),
-    .before = solar_attenuation
-  ) |>
-  unnest(
-    c(wavelength_nm, solar_attenuation)
   ) |>
   # drop the coordinates, now we have the lookup
   select(

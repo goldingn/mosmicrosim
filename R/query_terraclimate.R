@@ -418,7 +418,6 @@ clear_sky_radiation_12mo <- function(latitude, longitude) {
                         daily_wind_max_ms = rep(0, 12),
                         daily_wind_min_ms = rep(0, 12),
                         daily_rainfall_mm = rep(0, 12))
-
   # edit to not run anything except solar radiation
   micro$microinput["solonly"] <- 1
 
@@ -714,7 +713,9 @@ terraclimate_extract_tile <- function(tile_number, tiles, dates, variables) {
 
 # Fetch a 12-band raster of synoptic monthly clearsky radiation matching the
 # terraclimate template raster
-get_tc_clearsky_raster <- function(tc_clearsky_filepath = "tc_clearsky.tif") {
+get_tc_clearsky_raster <- function(
+    tc_clearsky_filepath = "temp/tc_clearsky.tif") {
+
   if (file.exists(tc_clearsky_filepath)) {
     res <- terra::rast(tc_clearsky_filepath)
     return(res)
@@ -724,31 +725,43 @@ get_tc_clearsky_raster <- function(tc_clearsky_filepath = "tc_clearsky.tif") {
       create_tc_clearsky_raster() to create it"
     )
   }
+
 }
 
-# given a terraclimate template raster and a filepath, create a 12-band raster
-# of synoptic monthly clearsky radiation matching the terraclimate template
-# raster and save it at the file path
+# given a terraclimate template raster 'tc_raster' and a specified filepath for
+# the output 'tc_clearsky_filepath', create a 12-band raster of synoptic monthly
+# clearsky radiation matching the terraclimate template raster and save it at
+# the file path. By default (agg = 1), this runs the clearsky algorithm on every
+# pixel of the terraclimate template raster. Alternatively, integer agg > 1 can
+# be set to run the clearsky radiation code at a lower resolution, and then
+# disaggregate back to the target template resolution.
 create_tc_clearsky_raster <- function(
     tc_template,
-    tc_clearsky_filepath = "tc_clearsky.tif") {
+    tc_clearsky_filepath = "temp/tc_clearsky.tif",
+    agg = 1) {
+
+  if (agg > 1) {
+    tc_template_original <- tc_template
+    tc_template <- terra::aggregate(tc_template_original,
+                                    agg,
+                                    na.rm = TRUE)
+  }
 
   # the get the latitude and longitude for all non-NA cells of the raster
   non_na_cells <- cells(tc_template)
   coords <- xyFromCell(tc_template, non_na_cells)
 
   # parallel process each cell through clear_sky_radiation_12mo(). Will take
-  # approx 20h on all 8 cores of my laptop, so run on bigger compute cluster
-  system.time(
-    res <- future.apply::future_apply(
-      coords,
-      1,
-      function(coords) {
-        clear_sky_radiation_12mo(
-          latitude = coords[2],
-          longitude = coords[1])
-      }
-    )
+  # approx 20h on all 8 cores of my laptop. But even slower on AWS! So run
+  # overnight?
+  res <- future.apply::future_apply(
+    coords,
+    1,
+    function(coords) {
+      clear_sky_radiation_12mo(
+        latitude = coords[2],
+        longitude = coords[1])
+    }
   )
 
   # save the outputs as a multiband raster
@@ -756,12 +769,106 @@ create_tc_clearsky_raster <- function(
   nlyr(clearsky_raster) <- 12
   clearsky_raster[non_na_cells] <- t(res)
 
+  # if we aggregatedm then disaggregate with bilinear interpolation and re-mask
+  if (agg > 1) {
+    clearsky_raster <- terra::disagg(clearsky_raster,
+                                     agg,
+                                     method = "bilinear")
+    clearsky_raster <- terra::extend(clearsky_raster,
+                                     tc_template_original)
+    clearsky_raster <- terra::crop(clearsky_raster,
+                                   tc_template_original)
+    clearsky_raster <- terra::mask(clearsky_raster,
+                                   tc_template_original)
+  }
+
   writeRaster(clearsky_raster,
               tc_clearsky_filepath,
               overwrite = TRUE)
 
 }
 
+
+# Given a tibble of extracted monthly terraclimate data in wide format
+# per-variable (i.e. rows for observations but separate columns for tmax, tmin,
+# etc.), compute additional variables used by NicheMapR: min/max relative
+# humidity, min/max windspeed, min/max cloud cover, and rename precipitation as
+# rainfall (assumed no snow in areas we consider for mosquito population
+# dynamics). This involves execution of clear_sky_radiation_12mo(), which
+# involves running NicheMapR in solonly mode for each pixel, and can be slow.
+process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
+
+  # make a lookup to the terraclimate clearsky raster for this tile
+  clearsky_raster <- get_tc_clearsky_raster()
+
+  clearsky_lookup <- terraclimate_tile_data |>
+    distinct(
+      latitude,
+      longitude
+    ) |>
+    terra::extract(
+      clearsky_raster,
+      .
+    ) |>
+    stop("not yet complete") |>
+    rename(
+      latitude,
+      longitude,
+      month,
+      clearsky_rad
+    )
+
+  # process terraclimate data into format required for NicheMapR micro function
+  terraclimate_tile_data |>
+    # add a midpoint date, for looking up solar radiation max/min, and later
+    # for splining
+    mutate(
+      mid_date = start + (end - start) / 2,
+      .before = start
+    ) |>
+    # compute relative humidity max/min, by first computing vapour pressure
+    # from mean temp and vp deficit then computing RH at max/min temps
+    mutate(
+      tmean = (tmax + tmin) / 2,
+      vp = vapour_pressure(tmean, vpd),
+      rhmax = relative_humidity(tmin, vp),
+      rhmin = relative_humidity(tmax, vp)
+    ) |>
+    # adjust wind speed from measured height (10m) to match the other inputs
+    # (2m) and split by max/min (using NicheMapR's ad-hoc adjusment for min)
+    mutate(
+      wsmax = adjust_wind_speed(ws, height_required = 2, height_measured = 10),
+      wsmin = wsmax * 0.1
+    ) |>
+    # append the expected clear sky radiation (microclimate code using
+    # coordinates and aerosol data) and use this to compute cloud cover
+    # percentage from solar radiation (terraclimate) and and manual multipliers
+    # to enforce daily variation, as used in NicheMapR
+    mutate(
+      month = lubridate::month(mid_date)
+    ) |>
+    left_join(
+      clearsky_lookup,
+      by = c("latitude", "longitude", "month")
+    ) |>
+    mutate(
+      ccmax = cloud_cover(srad, clearsky_rad, multiplier = 1.2),
+      ccmin = cloud_cover(srad, clearsky_rad, multiplier = 0.8)
+    ) |>
+    # rename precipitation to rainfall, since we assume that's how it falls in
+    # areas we are interested in (no mosquitoes in snowfall areas, at least in
+    # places with major VBDs)
+    rename(
+      rainfall = ppt
+    ) |>
+    select(-ws,
+           -vpd,
+           -vp,
+           -tmean,
+           -clearsky_rad,
+           -month)
+
+}
 
 # demo
 
@@ -999,7 +1106,7 @@ title(main = "Wind speed")
 template <- rast("~/Dropbox/github/ir_cube/data/clean/raster_mask.tif")
 
 # create a corresponding terraclimate raster (aligned with terraclimate grid
-# location, and excluding missing cells in terrclimate or more than 1 cell away
+# location, and excluding missing cells in terraclimate or more than 1 cell away
 # from template cells with data)
 tc_template <- make_terraclimate_template(template)
 
@@ -1047,7 +1154,7 @@ dates <- seq(as.Date("2020-01-01"),
              as.Date("2024-12-31"),
              by = "1 day")
 
-# extract all terracclimate data for this tile
+# extract all terraclimate data for this tile
 tile_data <- terraclimate_extract_tile(tile_number = 1,
                                        tiles = tiles,
                                        dates = dates,
@@ -1088,6 +1195,7 @@ tile_data <- terraclimate_extract_tile(tile_number = 1,
 #   ) +
 #   theme_minimal()
 
+
 # do splining of monthly data to daily for each cell in this tile
 
 # pivot to wide format on variables for processing to NicheMapR inputs
@@ -1099,98 +1207,33 @@ terraclimate_tile_data <- tile_data |>
 plan(multisession,
      workers = 8)
 
-create_tc_clearsky_raster(tc_template)
+# debugonce(create_tc_clearsky_raster)
+create_tc_clearsky_raster(tc_template, agg = 25)
+
+tc_clearsky <- get_tc_clearsky_raster()
+plot(tc_clearsky[[c(1, 3, 5, 7, 9, 11)]])
+
+# note that clearsky is at low (5 degree) resolution, so make a 5 degree
+# (GADS-native) raster and lookup to these values, and a function to extract
+# them for any location and month
+
+# actually, clearsky calculation might be trivial now that we have solar
+# attenuation as a lookup
 
 
 
 
+library(profvis)
 
-# Given a tibble of extracted monthly terraclimate data in wide format
-# per-variable (i.e. rows for observations but separate columns for tmax, tmin,
-# etc.), compute additional variables used by NicheMapR: min/max relative
-# humidity, min/max windspeed, min/max cloud cover, and rename precipitation as
-# rainfall (assumed no snow in areas we consider for mosquito population
-# dynamics). This involves execution of clear_sky_radiation_12mo(), which
-# involves running NicheMapR in solonly mode for each pixel, and can be slow.
-process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
-
-  # make a lookup to the terraclimate clearsky raster for this tile
-  clearsky_raster <- get_tc_clearsky_raster()
-
-  clearsky_lookup <- terraclimate_tile_data |>
-    distinct(
-      latitude,
-      longitude
-    ) |>
-    terra::extract(
-      clearsky_raster,
-      .
-    ) |>
-    stop("not yet complete") |>
-    rename(
-      latitude,
-      longitude,
-      month,
-      clearsky_rad
-    )
-
-  # process terraclimate data into format required for NicheMapR micro function
-  terraclimate_tile_data |>
-    # add a midpoint date, for looking up solar radiation max/min, and later
-    # for splining
-    mutate(
-      mid_date = start + (end - start) / 2,
-      .before = start
-    ) |>
-    # compute relative humidity max/min, by first computing vapour pressure
-    # from mean temp and vp deficit then computing RH at max/min temps
-    mutate(
-      tmean = (tmax + tmin) / 2,
-      vp = vapour_pressure(tmean, vpd),
-      rhmax = relative_humidity(tmin, vp),
-      rhmin = relative_humidity(tmax, vp)
-    ) |>
-    # adjust wind speed from measured height (10m) to match the other inputs
-    # (2m) and split by max/min (using NicheMapR's ad-hoc adjusment for min)
-    mutate(
-      wsmax = adjust_wind_speed(ws, height_required = 2, height_measured = 10),
-      wsmin = wsmax * 0.1
-    ) |>
-    # append the expected clear sky radiation (microclimate code using
-    # coordinates and aerosol data) and use this to compute cloud cover
-    # percentage from solar radiation (terraclimate) and and manual multipliers
-    # to enforce daily variation, as used in NicheMapR
-    mutate(
-      month = lubridate::month(mid_date)
-    ) |>
-    left_join(
-      clearsky_lookup,
-      by = c("latitude", "longitude", "month")
-    ) |>
-    mutate(
-      ccmax = cloud_cover(srad, clearsky_rad, multiplier = 1.2),
-      ccmin = cloud_cover(srad, clearsky_rad, multiplier = 0.8)
-    ) |>
-    # rename precipitation to rainfall, since we assume that's how it falls in
-    # areas we are interested in (no mosquitoes in snowfall areas, at least in
-    # places with major VBDs)
-    rename(
-      rainfall = ppt
-    ) |>
-    select(-ws,
-           -vpd,
-           -vp,
-           -tmean,
-           -clearsky_rad,
-           -month)
-
-}
-
+profvis::profvis(
+  replicate(10,
+            clear_sky_radiation_12mo(latitude, longitude))
+)
 # prepare monthly terraclimate data for spline interpolation
 
 
-
-
+res <- micro_global(loc = c(0, 0), solonly = 1)
+res$metout
 
 
 # convert precipitation to log scale to spline
@@ -1231,6 +1274,57 @@ for (var in new_var) {
 # convert log rainfall back
 climate_daily$rainfall_mm <- expm1(climate_daily$log_rainfall_mm)
 
+
+
+# we need to compute clearsky solar radiation per pixel, which requires running
+# NicheMapR, but this seems to mostly take time running the solar_attenuation
+# function, which executes fortran code on GADS. It's low resolution, so a look
+# up would be much more performant. Then the clearsky stuff could be computed.
+# First though, we need to work out the native resolution and orientation of the
+# GADS data underlying the fortran code, so we can query it. This is given in
+# the code for the R GADS implementation in NicheMapR:
+
+
+# this is running the fortran code across everything?!
+
+str(solar_attenuation_lookup$solar_attenuation[[1]], 1)
+
+# to do:
+
+# put this code to create the lookup in a script in data-raw
+
+# save the files to disk with these commands
+
+# write functions to batch lookup solar attenuation tables from this dataset
+
+
+
+
+# need to save this reload this
+
+# need a function to do batch lookups by extracting cell IDs from the raster,
+# then left-joining the table. These can then be passed into create_micro, so
+# skip having to run that step.
+
+library(profvis)
+profvis::profvis(
+  system.time(
+    replicate(100,
+              clear_sky_radiation_12mo(latitude, longitude))
+  )
+)
+
+
+system.time(
+  replicate(100,
+            clear_sky_radiation_12mo(latitude, longitude))
+)
+
+system.time(
+  replicate(100,
+            solar_attenuation(latitude, longitude))
+)
+v
 
 
 # To do:

@@ -1,18 +1,20 @@
-# compute solar attenuation data for a given latitude and longitude, either
-# using spatially-varying estimates from GADS, via a precomputed lookup table,
-# or by running GADS code (attempting to use fortran version, and falling back
-# on the R version if that fails) or using the non-spatial estimate of Elterman
+# compute solar attenuation data for a given set of latitudes and longitudes,
+# either using spatially-varying estimates from GADS, via a precomputed lookup
+# table, or by running GADS code (attempting to use fortran version, and falling
+# back on the R version if that fails), or using the non-spatial estimate of
+# Elterman. If a single set of coordinates is given
 solar_attenuation <- function(latitude,
                               longitude,
-                              which = c("GADS_lookup", "GADS", "Elterman")) {
+                              which = c("GADS_lookup",
+                                        "GADS",
+                                        "Elterman")) {
 
   which <- match.arg(which)
 
   solar_attenuation <- switch(which,
                               "GADS_lookup" = solar_attenuation_gads_lookup(
                                 latitude = latitude,
-                                longitude = longitude,
-                              ),
+                                longitude = longitude),
                               "GADS" = solar_attenuation_gads(
                                 latitude = latitude,
                                 longitude = longitude,
@@ -117,26 +119,29 @@ gads_try_fortran <- function(lat, lon, relhum, season) {
 
 }
 
+# load the GADS lookup raster (replace this filepath with a system.file() call
+# once the package is building)
+ye_gads <- terra::rast(
+  "inst/extdata/ye_gads.tif"
+)
+
+# load the lookup table to attenuation curves
+load("R/sysdata.rda")
+
 solar_attenuation_gads_lookup <- function(latitude = latitude,
                                           longitude = longitude) {
 
   library(tidyverse)
   library(terra)
 
-  # lookup the GADS cell number using the raster (replace this filepath with a
-  # system.file() call once the package is building)
-  ye_gads <- terra::rast(
-    "inst/extdata/ye_gads.tif"
-  )
+  # lookup the GADS cell number using the raster
 
   cell_ids <- terra::extract(ye_gads,
                              cbind(longitude, latitude),
                              cells = FALSE) |>
     as_tibble()
 
-  # pull out the solar attenuation information for this cells
-  load("R/sysdata.rda")
-
+  # pull out the solar attenuation information for this cell
   cell_ids |>
     left_join(
       solar_attenuation_lookup,
@@ -144,30 +149,39 @@ solar_attenuation_gads_lookup <- function(latitude = latitude,
     ) |>
     select(
       -cell_id
-    )
+    ) |>
+    # unpack list
+    unlist(
+      solar_attenuation
+    ) |>
+    # scrub names
+    `names<-`(1:111)
 
 }
 
 # to do next, make all of these function batched
 
-
+# lat <- runif(1, -90, 90)
+# lon <- runif(1, -180, 180)
+#
 # bench::mark(
-#   tmp_lookup <- solar_attenuation_gads_lookup(latitude = 40,
-#                                               longitude = -100),
-#   tmp_either <- solar_attenuation_gads(latitude = 40,
-#                                        longitude = -100,
+#   tmp_lookup <- solar_attenuation_gads_lookup(latitude = lat,
+#                                               longitude = lon),
+#   tmp_either <- solar_attenuation_gads(latitude = lat,
+#                                        longitude = lon,
 #                                        method = "fortran>R"),
-#   tmp <- solar_attenuation_gads(latitude = 40,
-#                                 longitude = -100,
+#   tmp <- solar_attenuation_gads(latitude = lat,
+#                                 longitude = lon,
 #                                 method = "fortran"),
-#   tmp_R <- solar_attenuation_gads(latitude = 40,
-#                                   longitude = -100,
+#   tmp_R <- solar_attenuation_gads(latitude = lat,
+#                                   longitude = lon,
 #                                   method = "R"),
 #   check = FALSE
 # )
 #
-# par(mfrow = c(2, 1))
-# plot(tmp ~ wavelengths_nm, type = "l")
-# lines(tmp_R ~ wavelengths_nm, lty = 2)
-# plot(solar_attenuation_elterman ~ wavelengths_nm,
-#      type = "l")
+# # lookup is ~100x faster
+#
+# # lookup value identical to R, and minimal difference to fortran (different rounding/lookup in the fortran code?)
+# max(abs(tmp_lookup - tmp_either))
+# max(abs(tmp_lookup - tmp_R))
+# max(abs(tmp_lookup - tmp))
