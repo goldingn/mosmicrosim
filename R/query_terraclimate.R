@@ -580,35 +580,135 @@ make_terraclimate_template <- function(template) {
 
 # given a vector defining an extent object, and a terraclimate template raster,
 # return a logical for whether there are any non-na values in that extent
-check_tile <- function(vec, tc_template) {
+check_tile <- function(vec, template) {
   this_tile <- ext(vec)
-  this_raster <- terra::crop(tc_template, this_tile)
+  this_raster <- terra::crop(template, this_tile)
   length(cells(this_raster)) > 0
 }
 
 # given a vector defining an extent object, and a terraclimate template raster,
 # return a vector for a trimmed extent object to the smallest rectangle
 # including only non-NA cells
-trim_tile <- function(vec, tc_template) {
+trim_tile <- function(vec, template) {
 
   # make a raster with this extent, trim it, and convert back ot an extent
   tile <- terra::ext(vec)
-  raster <- terra::crop(tc_template, tile)
+  raster <- terra::crop(template, tile)
   raster_trimmed <- terra::trim(raster)
   tile_trimmed <- terra::ext(raster_trimmed)
 
-  # convvert to a spatvector, negative buffer by a quarter of a cell so each
+  # convert to a spatvector, negative buffer by a quarter of a cell so each
   # cell centroid is in only one tile, and convert back ot an extent
-  buffer_distance <- -1 * res(tc_template) / 4
+  buffer_distance <- -1 * res(template) / 4
   spatvector_trimmed <- vect(tile_trimmed)
   spatvector_trimmed_shrunk <- terra::buffer(spatvector_trimmed,
-                                                  buffer_distance)
+                                             buffer_distance)
   tile_trimmed_shrunk <- terra::ext(spatvector_trimmed_shrunk)
 
   # return as a vector
   as.vector(tile_trimmed_shrunk)
 }
 
+# given a template raster denoting non-NA cells for processing, and a target
+# number of tiles, return the dimensions for approximately that number of tiles
+# as a matrix with each row giving the tile extents (xmin, xmax, ymin, ymax).
+# Tiles will only be returned that contain non-NA cells, and will be trimmed to
+# include only rows and columns that contain non-NA cells.
+make_tiles <- function(template, target_n_tiles = 100) {
+
+  # work out the fraction of non-missing cells in the raster, and adjust up the
+  # number of tiles
+  n_cells_all <- prod(dim(template)[c(1:2)])
+  n_cells_valid <- length(cells(template))
+  prop_cells_valid <- n_cells_valid / n_cells_all
+  target_n_tiles_adj <- target_n_tiles / prop_cells_valid
+
+  # aggregate a raster into approximately this number of square tiles
+  agg_factor <- round(sqrt(n_cells_all / target_n_tiles_adj))
+  tiles_raster <- terra:::aggregate(template, agg_factor)
+  tiles <- terra::getTileExtents(template, tiles_raster)
+
+  # weed out tiles with no values in them
+  tiles_valid <- apply(tiles,
+                       MARGIN = 1,
+                       FUN = check_tile,
+                       template = template)
+  tiles <- tiles[tiles_valid, ]
+
+  # trim them down to only the valid cells, and shrink them all by less than half
+  # a cell to prevent excessive processing of cells
+  tiles <- t(apply(tiles,
+                   MARGIN = 1,
+                   FUN = trim_tile,
+                   template = template))
+
+  tiles
+}
+
+# given an integer 'tile_number' for the tile to extract (indexing tiles), a
+# matrix 'tiles' of tile extents (wach rwo giving the bounding box), a vector of
+# 'dates' for which we need data, and a vector of 'variables' required, extract
+# monthly terraclimate data on those variables, for all cells in that tile, for
+# all available months, where possible extending beyond 'dates' to enable
+# improved spline interpolation, and return as a tibble, identifying the cell by
+# the latitude and longitude of its centroid.
+terraclimate_extract_tile <- function(tile_number, tiles, dates, variables) {
+
+  # make an extent object for this tile
+  tile <- ext(tiles[tile_number, ])
+
+  # build the slice for all pixels (including NAs) in this tile
+  tile_slice <- terraclimate_build_slice_extent(
+    extent = tile,
+    dates = dates
+  )
+
+  # download each of the variables for this slice
+  stack_list <- list()
+  for(var in variables) {
+    stack_list[[var]] <- terraclimate_fetch(tile_slice, var)
+  }
+
+  # combine into tidy long-format tibble, by making a 4D array with appropriate
+  # dimension names, coercing to long form via a table, and then tidying up the
+  # tibble
+  stack <- do.call(abind,
+                   c(stack_list, list(along = 4)))
+
+  dimnames(stack) <- list(
+    longitude = tile_slice$longitudes,
+    latitude = tile_slice$latitudes,
+    start = as.character(tile_slice$dates$start),
+    variable = variables
+  )
+
+  stack |>
+    as.data.frame.table(
+      stringsAsFactors = FALSE
+    ) |>
+    as_tibble() |>
+    rename(
+      value = Freq
+    ) |>
+    filter(
+      !is.na(value)
+    ) |>
+    mutate(
+      longitude = as.numeric(longitude),
+      latitude = as.numeric(latitude),
+      start = as.Date(start)
+    ) |>
+    # add on the end dates
+    left_join(
+      as_tibble(tile_slice$dates),
+      by = "start"
+    ) |>
+    relocate(
+      end,
+      .after = start
+    )
+
+}
 
 
 # demo
@@ -778,20 +878,20 @@ system.time(
 )
 # )
 
-# it's frustrating that runshade=1 is required, contact Mike with a reprex and
-# to to ask why?
-micro2 <- micro
-micro2$microinput["runshade"] <- 0
-system.time(
-  sim2 <- NicheMapR::microclimate(micro2)
-)
-summary(sim2$shadmet[, "TALOC"])
+# # it's frustrating that runshade=1 is required, contact Mike with a reprex and
+# # to to ask why?
+# micro2 <- micro
+# micro2$microinput["runshade"] <- 0
+# system.time(
+#   sim2 <- NicheMapR::microclimate(micro2)
+# )
+# summary(sim2$shadmet[, "TALOC"])
 
 
 # plot some examples of microclimate conditions, with the external conditions
 # over the top
 
-n_days <- 12 * 7
+n_days <- 52 * 7
 days <- 1:n_days
 hours <- 0 * 24 + 1:(24 * n_days)
 dates_plot <- dates[days] + lubridate::hours(1)
@@ -804,6 +904,7 @@ plot(vals ~ hours_plot,
      type = "l",
      ylab = "C",
      las = 1,
+     lwd = 0.1,
      ylim = c(0, 40))
 lines(climate_daily$tmax[days] ~ dates_plot,
       lty = 2)
@@ -816,6 +917,7 @@ plot(vals ~ hours_plot,
      type = "l",
      ylab = "%",
      las = 1,
+     lwd = 0.1,
      ylim = c(0, 100))
 lines(climate_daily$rhmin[days] ~ dates_plot,
       lty = 2)
@@ -828,6 +930,7 @@ plot(vals ~ hours_plot,
      type = "l",
      ylab = "m/s",
      las = 1,
+     lwd = 0.1,
      ylim = c(0, 5))
 lines(climate_daily$wsmax[days] ~ dates_plot,
       lty = 2)
@@ -851,130 +954,56 @@ tc_template <- make_terraclimate_template(template)
 # now batch-process this by defining tiles covering the continent,
 # and extracting whole slices for those tiles for the required times
 
+# make some tiles
+tiles <- make_tiles(tc_template, target_n_tiles = 100)
+
+# # not too bad
+# nrow(tiles)
+#
+# # check how they look
+# par(mfrow = c(1, 1))
+# plot(tc_template,
+#      box = FALSE,
+#      axes = FALSE)
+# for(i in seq_len(n_tiles)) {
+#   plot(ext(tiles[i, ]),
+#        add = TRUE)
+# }
+# # beautiful.
+#
+# # zoom in to check the margins are non-overlapping and contain centoids, as
+# # expected
+# zoom <- ext(-7.5,
+#             -7.2,
+#             32.3,
+#             32.6)
+# plot(tc_template,
+#      ext = zoom,
+#      box = FALSE,
+#      axes = FALSE)
+# for(i in seq_len(n_tiles)) {
+#   plot(ext(tiles[i, ]),
+#        add = TRUE)
+# }
+# zoom_rast <- crop(tc_template, zoom)
+# zoom_points <- xyFromCell(zoom_rast, cells(zoom_rast))
+# points(zoom_points,
+#        pch = 16)
+
+# define all dates to extract per tile
 dates <- seq(as.Date("2020-01-01"),
              as.Date("2024-12-31"),
              by = "1 day")
 
+# extract all terracclimate data for this tile
+tile_data <- terraclimate_extract_tile(tile_number = 1,
+                                       tiles = tiles,
+                                       dates = dates,
+                                       variables = vars)
 
-# define the rough number of tiles required
-target_n_tiles <- 100
-
-# work out the fraction of non-missing cells in the raster, and adjust up the
-# number of tiles
-n_cells_all <- prod(dim(tc_template)[c(1:2)])
-n_cells_valid <- length(cells(tc_template))
-prop_cells_valid <- n_cells_valid / n_cells_all
-target_n_tiles_adj <- target_n_tiles / prop_cells_valid
-
-# aggregate a raster into approximately this number of square tiles
-agg_factor <- round(sqrt(n_cells_all / target_n_tiles_adj))
-tiles_raster <- terra:::aggregate(tc_template, agg_factor)
-tiles <- terra::getTileExtents(tc_template, tiles_raster)
-
-# weed out tiles with no values in them
-tiles_valid <- apply(tiles,
-                     MARGIN = 1,
-                     FUN = check_tile,
-                     tc_template = tc_template)
-tiles <- tiles[tiles_valid, ]
-
-# trim them down to only the valid cells, and shrink them all by less than half
-# a cell to prevent excessive processing of cells
-tiles <- t(apply(tiles,
-                 MARGIN = 1,
-                 FUN = trim_tile,
-                 tc_template = tc_template))
-
-
-n_tiles <- nrow(tiles)
-
-# not too bad
-target_n_tiles
-n_tiles
-
-# check how they look
-par(mfrow = c(1, 1))
-plot(tc_template,
-     box = FALSE,
-     axes = FALSE)
-for(i in seq_len(n_tiles)) {
-  plot(ext(tiles[i, ]),
-       add = TRUE)
-}
-# beautiful.
-
-# zoom in to check the margins are non-overlapping and contain centoids, as
-# expected
-zoom <- ext(-7.5,
-            -7.2,
-            32.3,
-            32.6)
-plot(tc_template,
-     ext = zoom,
-     box = FALSE,
-     axes = FALSE)
-for(i in seq_len(n_tiles)) {
-  plot(ext(tiles[i, ]),
-       add = TRUE)
-}
-zoom_rast <- crop(tc_template, zoom)
-zoom_points <- xyFromCell(zoom_rast, cells(zoom_rast))
-points(zoom_points,
-       pch = 16)
-
-
-# now process a single tile
-i <- 1
-tile <- ext(tiles[i, ])
-
-# build the slice for all pixels (including NAs) in this tile
-tile_slice <- terraclimate_build_slice_extent(
-  extent = tile,
-  dates = dates
-)
-
-# download each of the variables for this slice
-stack_list <- list()
-for(var in vars) {
-  stack_list[[var]] <- terraclimate_fetch(tile_slice, var)
-}
-
-# combine into tidy long-format tibble
-stack <- do.call(abind,
-                 c(stack_list, list(along = 4)))
-dimnames(stack) <- list(
-  longitude = tile_slice$longitudes,
-  latitude = tile_slice$latitudes,
-  start = as.character(tile_slice$dates$start),
-  variable = vars
-)
-
-tile_data_tbl <- stack |>
-  as.data.frame.table(
-    stringsAsFactors = FALSE
-  ) |>
-  as_tibble() |>
-  rename(
-    value = Freq
-  ) |>
-  filter(
-    !is.na(value)
-  ) |>
-  mutate(
-    longitude = as.numeric(longitude),
-    latitude = as.numeric(latitude),
-    start = as.Date(start)
-  ) |>
-  # add on the end dates
-  left_join(
-    as_tibble(tile_slice$dates),
-    by = "start"
-  ) |>
-  relocate(
-    end,
-    .after = start
-  ) |>
-  # add a cell id
+# plot some things
+tile_data_plot <- tile_data |>
+  # add a cell id for plotting
   group_by(
     latitude,
     longitude
@@ -985,12 +1014,9 @@ tile_data_tbl <- stack |>
   ) |>
   ungroup()
 
-
-# plot some things
-
-tile_data_tbl |>
+tile_data_plot |>
   filter(
-    cell_id %in% sample.int(n_distinct(tile_data_tbl$cell_id), 5)
+    cell_id %in% sample.int(n_distinct(tile_data_plot$cell_id), 5)
   ) |>
   mutate(
     date = start + (end - start) / 2,
@@ -1000,8 +1026,7 @@ tile_data_tbl |>
     aes(
       x = date,
       y = value,
-      group = cell_id,
-      colour = variable
+      colour = factor(cell_id)
     )
   ) +
   geom_line() +
@@ -1016,11 +1041,11 @@ tile_data_tbl |>
 
 # Build wrapper functions to:
 
-# Create processing tiles
+# Create processing tiles - FUNCTION DONE
 
 # Within each tile:
 
-  # download and format all terraclimate data for the tile 2000-2025
+  # download and format all terraclimate data for the tile 2000-2025 - FUNCTION DONE
 
   # For each pixel in the tile:
 
@@ -1032,9 +1057,12 @@ tile_data_tbl |>
 
     # summarise the population dynamic outputs to monthly data 2000-2025
 
-  # write the monthly summaries to monthly tile raster 2000-2025 (300 per tile)
+  # write the monthly summaries for this tile to disk as a CSV file
 
-# mosaic the rasters together into one band per tile
+# load the template raster and CSVs to create (~300) monthly GeoTIFFs of monthly
+# data, and 12 layers of synoptic values.
+
+
 
 
 # also:
