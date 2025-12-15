@@ -1,13 +1,18 @@
 # compute solar attenuation data for a given latitude and longitude, either
-# using GADS (attempting to use fortran version, and falling back on the R
-# version) or using the fixed estimate of Elterman
+# using spatially-varying estimates from GADS, via a precomputed lookup table,
+# or by running GADS code (attempting to use fortran version, and falling back
+# on the R version if that fails) or using the non-spatial estimate of Elterman
 solar_attenuation <- function(latitude,
                               longitude,
-                              which = c("GADS", "Elterman")) {
+                              which = c("GADS_lookup", "GADS", "Elterman")) {
 
   which <- match.arg(which)
 
   solar_attenuation <- switch(which,
+                              "GADS_lookup" = solar_attenuation_gads_lookup(
+                                latitude = latitude,
+                                longitude = longitude,
+                              ),
                               "GADS" = solar_attenuation_gads(
                                 latitude = latitude,
                                 longitude = longitude,
@@ -111,11 +116,47 @@ gads_try_fortran <- function(lat, lon, relhum, season) {
   )
 
 }
-#
+
+solar_attenuation_gads_lookup <- function(latitude = latitude,
+                                          longitude = longitude) {
+
+  library(tidyverse)
+  library(terra)
+
+  # lookup the GADS cell number using the raster (replace this filepath with a
+  # system.file() call once the package is building)
+  ye_gads <- terra::rast(
+    "inst/extdata/ye_gads.tif"
+  )
+
+  cell_ids <- terra::extract(ye_gads,
+                             cbind(longitude, latitude),
+                             cells = FALSE) |>
+    as_tibble()
+
+  # pull out the solar attenuation information for this cells
+  load("R/sysdata.rda")
+
+  cell_ids |>
+    left_join(
+      solar_attenuation_lookup,
+      by = "cell_id"
+    ) |>
+    select(
+      -cell_id
+    )
+
+}
+
+# to do next, make all of these function batched
+
+
 # bench::mark(
+#   tmp_lookup <- solar_attenuation_gads_lookup(latitude = 40,
+#                                               longitude = -100),
 #   tmp_either <- solar_attenuation_gads(latitude = 40,
-#                                 longitude = -100,
-#                                 method = "fortran>R"),
+#                                        longitude = -100,
+#                                        method = "fortran>R"),
 #   tmp <- solar_attenuation_gads(latitude = 40,
 #                                 longitude = -100,
 #                                 method = "fortran"),
