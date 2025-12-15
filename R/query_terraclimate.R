@@ -712,6 +712,57 @@ terraclimate_extract_tile <- function(tile_number, tiles, dates, variables) {
 }
 
 
+# Fetch a 12-band raster of synoptic monthly clearsky radiation matching the
+# terraclimate template raster
+get_tc_clearsky_raster <- function(tc_clearsky_filepath = "tc_clearsky.tif") {
+  if (file.exists(tc_clearsky_filepath)) {
+    res <- terra::rast(tc_clearsky_filepath)
+    return(res)
+  } else {
+    stop(
+      "terraclimate clearsky raster has not yet been created, run
+      create_tc_clearsky_raster() to create it"
+    )
+  }
+}
+
+# given a terraclimate template raster and a filepath, create a 12-band raster
+# of synoptic monthly clearsky radiation matching the terraclimate template
+# raster and save it at the file path
+create_tc_clearsky_raster <- function(
+    tc_template,
+    tc_clearsky_filepath = "tc_clearsky.tif") {
+
+  # the get the latitude and longitude for all non-NA cells of the raster
+  non_na_cells <- cells(tc_template)
+  coords <- xyFromCell(tc_template, non_na_cells)
+
+  # parallel process each cell through clear_sky_radiation_12mo(). Will take
+  # approx 20h on all 8 cores of my laptop, so run on bigger compute cluster
+  system.time(
+    res <- future.apply::future_apply(
+      coords,
+      1,
+      function(coords) {
+        clear_sky_radiation_12mo(
+          latitude = coords[2],
+          longitude = coords[1])
+      }
+    )
+  )
+
+  # save the outputs as a multiband raster
+  clearsky_raster <- tc_template
+  nlyr(clearsky_raster) <- 12
+  clearsky_raster[non_na_cells] <- t(res)
+
+  writeRaster(clearsky_raster,
+              tc_clearsky_filepath,
+              overwrite = TRUE)
+
+}
+
+
 # demo
 
 
@@ -1038,66 +1089,12 @@ tile_data <- terraclimate_extract_tile(tile_number = 1,
 #   theme_minimal()
 
 # do splining of monthly data to daily for each cell in this tile
-tile_data
 
+# pivot to wide format on variables for processing to NicheMapR inputs
 terraclimate_tile_data <- tile_data |>
   pivot_wider(names_from = variable,
               values_from = value)
 
-
-# need to set a temp location for all processing and point NicheMapR there,
-# including for downloading its own climate synoptic raster, etc.
-
-# Fetch a 12-band raster of synoptic monthly clearsky radiation matching the
-# terraclimate template raster
-get_tc_clearsky_raster <- function(tc_clearsky_filepath = stop()) {
-  if (file.exists(tc_clearsky_filepath)) {
-    res <- terra::rast(tc_clearsky_filepath)
-    return(res)
-  } else {
-    stop(
-      "terraclimate clearsky raster has not yet been created, run
-      create_tc_clearsky_raster() to create it"
-    )
-  }
-}
-
-# given a terraclimate template raster and a filepath, create a 12-band raster
-# of synoptic monthly clearsky radiation matching the terraclimate template
-# raster and save it at the file path
-create_tc_clearsky_raster <- function(
-    tc_template,
-    tc_clearsky_filepath = "tc_clearsky.tif") {
-
-  # the get the latitude and longitude for all non-NA cells of the raster
-  non_na_cells <- cells(tc_template)
-  coords <- xyFromCell(tc_template, non_na_cells)
-
-  # parallel process each cell through clear_sky_radiation_12mo(). Will take
-  # approx 20h on all 8 cores of my laptop, so run on bigger compute cluster
-  system.time(
-    res <- future.apply::future_apply(
-      coords,
-      1,
-      function(coords) {
-        clear_sky_radiation_12mo(
-          latitude = coords[2],
-          longitude = coords[1])
-      }
-    )
-  )
-
-  clearsky_raster <- tc_template
-  nlyr(clearsky_raster) <- 12
-  clearsky_raster[non_na_cells] <- t(res)
-
-  writeRaster(clearsky_raster,
-              tc_clearsky_filepath)
-
-
-  # save the outputs as a multiband raster
-
-}
 
 plan(multisession,
      workers = 8)
@@ -1242,11 +1239,15 @@ climate_daily$rainfall_mm <- expm1(climate_daily$log_rainfall_mm)
 
 # Create processing tiles - FUNCTION DONE
 
+# create clearsky_rad raster for terraclimate
+
 # Within each tile:
 
-  # download and format all terraclimate data for the tile 2000-2025 - FUNCTION DONE
+# download all terraclimate data for the tile 2000-2025 - FUNCTION DONE
 
   # For each pixel in the tile:
+
+    # format terraclimate to get NicheMapR inputs
 
     # run spline interpolation to get daily outdoor data 2000-2025
 
