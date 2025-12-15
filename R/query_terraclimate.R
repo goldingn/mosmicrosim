@@ -12,6 +12,7 @@ library(NicheMapR)
 library(tidyverse)
 library(terra)
 library(abind)
+library(future.apply)
 
 source("R/utils.R")
 source("R/create_micro.R")
@@ -1001,40 +1002,238 @@ tile_data <- terraclimate_extract_tile(tile_number = 1,
                                        dates = dates,
                                        variables = vars)
 
-# plot some things
-tile_data_plot <- tile_data |>
-  # add a cell id for plotting
-  group_by(
-    latitude,
-    longitude
-  ) |>
-  mutate(
-    cell_id = cur_group_id(),
-    .before = everything()
-  ) |>
-  ungroup()
+# # plot some things
+# tile_data_plot <- tile_data |>
+#   # add a cell id for plotting
+#   group_by(
+#     latitude,
+#     longitude
+#   ) |>
+#   mutate(
+#     cell_id = cur_group_id(),
+#     .before = everything()
+#   ) |>
+#   ungroup()
+#
+# tile_data_plot |>
+#   filter(
+#     cell_id %in% sample.int(n_distinct(tile_data_plot$cell_id), 5)
+#   ) |>
+#   mutate(
+#     date = start + (end - start) / 2,
+#     .after = end
+#   ) |>
+#   ggplot(
+#     aes(
+#       x = date,
+#       y = value,
+#       colour = factor(cell_id)
+#     )
+#   ) +
+#   geom_line() +
+#   facet_wrap(
+#     ~variable,
+#     scales = "free_y"
+#   ) +
+#   theme_minimal()
 
-tile_data_plot |>
-  filter(
-    cell_id %in% sample.int(n_distinct(tile_data_plot$cell_id), 5)
-  ) |>
-  mutate(
-    date = start + (end - start) / 2,
-    .after = end
-  ) |>
-  ggplot(
-    aes(
-      x = date,
-      y = value,
-      colour = factor(cell_id)
+# do splining of monthly data to daily for each cell in this tile
+tile_data
+
+terraclimate_tile_data <- tile_data |>
+  pivot_wider(names_from = variable,
+              values_from = value)
+
+
+# need to set a temp location for all processing and point NicheMapR there,
+# including for downloading its own climate synoptic raster, etc.
+
+# Fetch a 12-band raster of synoptic monthly clearsky radiation matching the
+# terraclimate template raster
+get_tc_clearsky_raster <- function(tc_clearsky_filepath = stop()) {
+  if (file.exists(tc_clearsky_filepath)) {
+    res <- terra::rast(tc_clearsky_filepath)
+    return(res)
+  } else {
+    stop(
+      "terraclimate clearsky raster has not yet been created, run
+      create_tc_clearsky_raster() to create it"
     )
-  ) +
-  geom_line() +
-  facet_wrap(
-    ~variable,
-    scales = "free_y"
-  ) +
-  theme_minimal()
+  }
+}
+
+# given a terraclimate template raster and a filepath, create a 12-band raster
+# of synoptic monthly clearsky radiation matching the terraclimate template
+# raster and save it at the file path
+create_tc_clearsky_raster <- function(
+    tc_template,
+    tc_clearsky_filepath = "tc_clearsky.tif") {
+
+  # the get the latitude and longitude for all non-NA cells of the raster
+  non_na_cells <- cells(tc_template)
+  coords <- xyFromCell(tc_template, non_na_cells)
+
+  # parallel process each cell through clear_sky_radiation_12mo(). Will take
+  # approx 20h on all 8 cores of my laptop, so run on bigger compute cluster
+  system.time(
+    res <- future.apply::future_apply(
+      coords,
+      1,
+      function(coords) {
+        clear_sky_radiation_12mo(
+          latitude = coords[2],
+          longitude = coords[1])
+      }
+    )
+  )
+
+  clearsky_raster <- tc_template
+  nlyr(clearsky_raster) <- 12
+  clearsky_raster[non_na_cells] <- t(res)
+
+  writeRaster(clearsky_raster,
+              tc_clearsky_filepath)
+
+
+  # save the outputs as a multiband raster
+
+}
+
+plan(multisession,
+     workers = 8)
+
+create_tc_clearsky_raster(tc_template)
+
+
+
+
+
+# Given a tibble of extracted monthly terraclimate data in wide format
+# per-variable (i.e. rows for observations but separate columns for tmax, tmin,
+# etc.), compute additional variables used by NicheMapR: min/max relative
+# humidity, min/max windspeed, min/max cloud cover, and rename precipitation as
+# rainfall (assumed no snow in areas we consider for mosquito population
+# dynamics). This involves execution of clear_sky_radiation_12mo(), which
+# involves running NicheMapR in solonly mode for each pixel, and can be slow.
+process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
+
+  # make a lookup to the terraclimate clearsky raster for this tile
+  clearsky_raster <- get_tc_clearsky_raster()
+
+  clearsky_lookup <- terraclimate_tile_data |>
+    distinct(
+      latitude,
+      longitude
+    ) |>
+    terra::extract(
+      clearsky_raster,
+      .
+    ) |>
+    stop("not yet complete") |>
+    rename(
+      latitude,
+      longitude,
+      month,
+      clearsky_rad
+    )
+
+  # process terraclimate data into format required for NicheMapR micro function
+  terraclimate_tile_data |>
+    # add a midpoint date, for looking up solar radiation max/min, and later
+    # for splining
+    mutate(
+      mid_date = start + (end - start) / 2,
+      .before = start
+    ) |>
+    # compute relative humidity max/min, by first computing vapour pressure
+    # from mean temp and vp deficit then computing RH at max/min temps
+    mutate(
+      tmean = (tmax + tmin) / 2,
+      vp = vapour_pressure(tmean, vpd),
+      rhmax = relative_humidity(tmin, vp),
+      rhmin = relative_humidity(tmax, vp)
+    ) |>
+    # adjust wind speed from measured height (10m) to match the other inputs
+    # (2m) and split by max/min (using NicheMapR's ad-hoc adjusment for min)
+    mutate(
+      wsmax = adjust_wind_speed(ws, height_required = 2, height_measured = 10),
+      wsmin = wsmax * 0.1
+    ) |>
+    # append the expected clear sky radiation (microclimate code using
+    # coordinates and aerosol data) and use this to compute cloud cover
+    # percentage from solar radiation (terraclimate) and and manual multipliers
+    # to enforce daily variation, as used in NicheMapR
+    mutate(
+      month = lubridate::month(mid_date)
+    ) |>
+    left_join(
+      clearsky_lookup,
+      by = c("latitude", "longitude", "month")
+    ) |>
+    mutate(
+      ccmax = cloud_cover(srad, clearsky_rad, multiplier = 1.2),
+      ccmin = cloud_cover(srad, clearsky_rad, multiplier = 0.8)
+    ) |>
+    # rename precipitation to rainfall, since we assume that's how it falls in
+    # areas we are interested in (no mosquitoes in snowfall areas, at least in
+    # places with major VBDs)
+    rename(
+      rainfall = ppt
+    ) |>
+    select(-ws,
+           -vpd,
+           -vp,
+           -tmean,
+           -clearsky_rad,
+           -month)
+
+}
+
+# prepare monthly terraclimate data for spline interpolation
+
+
+
+
+
+
+# convert precipitation to log scale to spline
+climate_monthly$log_rainfall_mm <- log1p(climate_monthly$rainfall_mm)
+
+# # compare with the Hulmes interpolated cloud cover raster at this site
+# cloud_cover_data <- get_cloud_cover_raster()
+# cloud_cover_hulmes <- terra::extract(cloud_cover_data,
+#                                      data.frame(longitude, latitude))
+# srad_sry <- tapply(climate_monthly$srad, monthly_index, FUN = mean)
+#
+# # our calculation from solar radiation is too high
+#
+# par(mfrow = c(1, 2))
+#
+# # from Hulmes:
+# plot(t(cloud_cover_hulmes[, -1]), ylim = c(0, 100))
+#
+# # from our calculation:
+# plot(cloud_cover(srad_sry, clearsky_radiation_monthly, multiplier = 1),
+#      ylim = c(0, 100))
+
+# spline these to the requested dates
+climate_daily <- data.frame(
+  date = dates
+)
+new_var <- c("tmax", "tmin",
+             "rhmax", "rhmin",
+             "wsmin", "wsmax",
+             "ccmax", "ccmin",
+             "log_rainfall_mm")
+for (var in new_var) {
+  climate_daily[, var] <- spline_seasonal(values = climate_monthly[, var],
+                                          dates = climate_monthly[, "mid_date"],
+                                          dates_predict = climate_daily[, "date"])
+}
+
+# convert log rainfall back
+climate_daily$rainfall_mm <- expm1(climate_daily$log_rainfall_mm)
+
 
 
 # To do:
