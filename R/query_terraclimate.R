@@ -837,50 +837,7 @@ title(main = "Wind speed")
 
 
 
-# Note: we could use GPM IMERG remotely-sensed daily 12km precipitation data,
-# rather than Terraclimate 5km (downscaled from CRU TS4.0 reanalysis of weather
-# station data), as Tas did for her model. But those data have not been
-# downscaled, and the stochastic nature of the rainfall might cause convergence
-# issues with the population dynamics simulation (even on an hourly timestep).
-# Given our aim is to capture broad-scale seasonality and spatial variation in
-# climatic suitability, the monthly, but spatially downscaled, terraclimate
-# data. This is also much easier to process, since there's no open THREDDS cube
-# interface, and the daily layers are stored as single-day grids (on portals and
-# MAP's GeoTIFF library)
-
-# imerg_dir <- "/mnt/s3/mastergrids/Other_Global_Covariates/Rainfall/GPMM_IMerg_Daily/v07B_Total/12km"
-# files <- list.files(imerg_dir, full.names = TRUE)
-# file.size(files[1])
-# # imerg <- rast(files)
-#
-# read_daily_rain <- function(year, day_of_year, res = c("5km", "12km")) {
-#   res <- match.arg(res)
-#   ddd <- sprintf("%03d", day_of_year)
-#   rr  <- rast(
-#     sprintf("/mnt/s3/mastergrids/Other_Global_Covariates/Rainfall/GPMM_IMerg_Daily/v07B_Total/%s/GPMM-IMerg-V07B-MM_Total.%d.%s.Data.%s.%s.tif",
-#             res,
-#             max(2001, year),
-#             ddd,
-#             res,
-#             ifelse(res == "5km", "NN", "Data"))
-#   )
-#   rr
-# }
-#
-# library(terra)
-# rain_5 <- read_daily_rain(2024, 179)
-# system.time(
-#   # rain <- read_daily_rain(2024, 179)
-#   rain <- read_daily_rain(2024, 179, "12km")
-# )
-# system.time(
-#   res <- terra::extract(rain_12, cbind(longitude, latitude))
-# )
-
-
-
 # batch process in tiles
-
 
 
 # load a template raster for Africa
@@ -1086,3 +1043,46 @@ tile_data_tbl |>
 # to microclimate simulation
 
 # add a wind shear exponent adjustment to the microclimate simulation set up?
+
+
+
+
+# Note: we could use GPM IMERG remotely-sensed daily 12km precipitation data,
+# rather than Terraclimate 5km (downscaled from CRU TS4.0 reanalysis of weather
+# station data), as Tas did for her model. But those data have not been
+# downscaled, and the stochastic nature of the rainfall might cause convergence
+# issues with the population dynamics simulation (even on an hourly timestep).
+# Given our aim is to capture broad-scale seasonality and spatial variation in
+# climatic suitability, the monthly, but spatially downscaled, terraclimate
+# data. This is also much easier to process, since there's no open THREDDS cube
+# interface, and the daily layers are stored as single-day grids (on portals and
+# MAP's GeoTIFF library)
+
+# imerg_dir <- "/mnt/s3/mastergrids/Other_Global_Covariates/Rainfall/GPMM_IMerg_Daily/v07B_Total/12km"
+# files <- list.files(imerg_dir, full.names = TRUE)
+# file.size(files[1])
+# # imerg <- rast(files)
+#
+# read_daily_rain <- function(year, day_of_year, res = c("5km", "12km")) {
+#   res <- match.arg(res)
+#   ddd <- sprintf("%03d", day_of_year)
+#   rr  <- rast(
+#     sprintf("/mnt/s3/mastergrids/Other_Global_Covariates/Rainfall/GPMM_IMerg_Daily/v07B_Total/%s/GPMM-IMerg-V07B-MM_Total.%d.%s.Data.%s.%s.tif",
+#             res,
+#             max(2001, year),
+#             ddd,
+#             res,
+#             ifelse(res == "5km", "NN", "Data"))
+#   )
+#   rr
+# }
+#
+# library(terra)
+# rain_5 <- read_daily_rain(2024, 179)
+# system.time(
+#   # rain <- read_daily_rain(2024, 179)
+#   rain <- read_daily_rain(2024, 179, "12km")
+# )
+# system.time(
+#   res <- terra::extract(rain_12, cbind(longitude, latitude))
+# )
