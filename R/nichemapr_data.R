@@ -55,10 +55,21 @@ get_nichemapr_data <- function() {
 
 }
 
+# load the NicheMapR global climate raster
+global_climate_file <- system.file("extdata",
+                                   "nichemapr_global_climate.tif",
+                                   package = "mosmicrosim")
+global_climate <- terra::rast(
+  global_climate_file
+)
+# wrap it, so it can be serialised (e.g. passed to future) without losing the
+# pointer
+global_climate_wrapped <- terra::wrap(global_climate)
+
 # get and cache the NicheMapR global climate data object, using a tempfile
 get_cloud_cover_raster <- function() {
 
-  nichemapr_data <- get_nichemapr_data()
+  nichemapr_data <- terra::unwrap(global_climate_wrapped)
 
   # pull out the cloud cover layers
   cloud_cover_data <- nichemapr_data[[paste0("cloud_cover", 1:12)]]
@@ -70,7 +81,7 @@ get_cloud_cover_raster <- function() {
 
 get_altitude_raster <- function() {
 
-  nichemapr_data <- get_nichemapr_data()
+  nichemapr_data <- terra::unwrap(global_climate_wrapped)
 
   # pull out the altitude layer
   altitude_data <- nichemapr_data[["altitude"]]
@@ -79,10 +90,11 @@ get_altitude_raster <- function() {
 
 }
 
-# lookup altitude in metres
-altitude_m <- function(longitude, latitude) {
-  altitude_raster <- get_altitude_raster()
+# lookup altitude in metres, defaulting to the nichemapr version
+altitude_m <- function(longitude, latitude,
+                       altitude_raster = get_altitude_raster()) {
   altitude_data <- terra::extract(altitude_raster,
-                                  data.frame(longitude, latitude))
-  altitude_data$altitude
+                                  data.frame(longitude, latitude),
+                                  ID = FALSE)
+  altitude_data[, 1]
 }

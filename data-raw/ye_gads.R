@@ -21,6 +21,9 @@
 # resolution of these data to match GADS to speed up computation and reduce file
 # storage.
 
+# We also store the NicheMapR global_climate.nc file in the package or faster
+# access
+
 library(NicheMapR)
 library(tidyverse)
 library(terra)
@@ -211,3 +214,13 @@ terra::writeRaster(tc_native,
 terra::writeRaster(tc_gads,
                    "inst/extdata/tc_gads.tif",
                    overwrite = TRUE)
+
+
+
+# Download and save the NicheMapR global climate data
+global_climate <- get_nichemapr_data()
+terra::writeRaster(global_climate,
+                   "inst/extdata/nichemapr_global_climate.tif",
+                   overwrite = TRUE)
+
+
