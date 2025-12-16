@@ -10,7 +10,7 @@ pkgload::load_all()
 # load major dependencies
 library(NicheMapR)
 library(terra)
-
+library(ggplot2)
 
 # demo: pointwise analysis
 
@@ -364,11 +364,10 @@ nichemapr_vars <- c("tmax", "tmin",
                     "ccmax", "ccmin",
                     "log1p_rainfall")
 
+# takes about 1.5min to spline interpolate all 9 variables at 958 locations, 5y,
+# not in parallel
 system.time(
   res <- tile_data_for_nichemapr |>
-    # dplyr::filter(
-    #   longitude == min(longitude) | latitude == min(latitude)
-    # ) |>
     # pivot_longer by variable
     tidyr::pivot_longer(
       cols = all_of(nichemapr_vars),
@@ -394,8 +393,39 @@ system.time(
     )
 )
 
+#
+# res |>
+#   dplyr::filter(
+#     latitude == latitude[1],
+#     longitude == longitude[1],
+#   ) |>
+#   dplyr::mutate(
+#     variable_group = dplyr::case_when(
+#       variable %in% c("ccmax", "ccmin") ~ "cloud cover",
+#       variable %in% c("rhmax", "rhmin") ~ "humidity",
+#       variable %in% c("tmax", "tmin") ~ "temperature",
+#       variable %in% c("wsmax", "wsmin") ~ "wind speed",
+#       .default = "rainfall"
+#     )
+#   ) |>
+#   ggplot(
+#     aes(
+#       x = date,
+#       y = value,
+#       colour = variable
+#     )
+#   ) +
+#   geom_line() +
+#   facet_wrap(
+#     ~variable_group,
+#     scales = "free_y"
+#   ) +
+#   theme_minimal()
+
+# head(res)
+
 # need wrapper function to do the following for monthly data at each location:
-# 1. spline interpolation (to daily)
+# 1. spline interpolation of all variables (to daily)
 # 2. microclimate simulation (to hourly)
 # 3. water body simulation (hourly)
 # 4. population dynamics (hourly)
