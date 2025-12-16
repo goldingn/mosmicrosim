@@ -4,12 +4,13 @@
 # get an old install of NicheMapR that works for this code
 # remotes::install_github("mrke/NicheMapR@v3.3.1")
 
+# load all internal package functions, for hacking purposes
+pkgload::load_all()
+
 # load major dependencies
 library(NicheMapR)
 library(terra)
 
-# load all internal package functions, for hacking purposes
-pkgload::load_all()
 
 # demo: pointwise analysis
 
@@ -27,7 +28,7 @@ pkgload::load_all()
 #
 # # get all variables
 # vars <- c("tmax", "tmin",  # temperature
-#           "ppt",  # precipitation?
+#           "ppt",  # precipitation
 #           "ws",  # wind speed
 #           "vpd",  # vapor pressure deficit (for rel humidity)
 #           "srad")  # solar radiation
@@ -251,9 +252,9 @@ tc_template <- make_terraclimate_template(template)
 
 # now batch-process this by defining tiles covering the continent,
 # and extracting whole slices for those tiles for the required times
-#
-# # make some tiles
-# tiles <- make_tiles(tc_template, target_n_tiles = 100)
+
+# make some tiles
+tiles <- make_tiles(tc_template, target_n_tiles = 100)
 
 # # not too bad
 # nrow(tiles)
@@ -288,16 +289,24 @@ tc_template <- make_terraclimate_template(template)
 # points(zoom_points,
 #        pch = 16)
 
-# # define all dates to extract per tile
-# dates <- seq(as.Date("2020-01-01"),
-#              as.Date("2024-12-31"),
-#              by = "1 day")
-#
-# # extract all terraclimate data for this tile
-# tile_data <- terraclimate_extract_tile(tile_number = 1,
-#                                        tiles = tiles,
-#                                        dates = dates,
-#                                        variables = vars)
+# define all dates to extract per tile
+dates <- seq(as.Date("2020-01-01"),
+             as.Date("2024-12-31"),
+             by = "1 day")
+
+# variables required for running NicheMapR sims
+vars <- c("tmax", "tmin",  # temperature
+          "ppt",  # precipitation
+          "ws",  # wind speed
+          "vpd",  # vapor pressure deficit (for rel humidity)
+          "srad")  # solar radiation
+
+
+# extract all terraclimate data for this tile
+tile_data <- terraclimate_extract_tile(tile_number = 1,
+                                       tiles = tiles,
+                                       dates = dates,
+                                       variables = vars)
 
 # # plot some things
 # tile_data_plot <- tile_data |>
@@ -337,173 +346,87 @@ tc_template <- make_terraclimate_template(template)
 
 # do splining of monthly data to daily for each cell in this tile
 
-# # pivot to wide format on variables for processing to NicheMapR inputs
-# terraclimate_tile_data <- tile_data |>
-#   pivot_wider(names_from = variable,
-#               values_from = value)
+# pivot to wide format on variables for processing to NicheMapR inputs
+terraclimate_tile_data <- tile_data |>
+  tidyr::pivot_wider(names_from = variable,
+                     values_from = value)
 
-# # crop down the Terraclimate template, and try running clearsky raster
-# e <- ext(-12.9411246861098,
-#          -6.04393523871602,
-#          26.5908179864436,
-#          33.2102706534487)
-#
-# tc_template_crop <- terra::crop(tc_template, e)
-#
-# n_small <- length(cells(tc_template_crop))
-# n_big <- length(cells(tc_template))
-
-# 1.1% of the raster cells
-# n_small / n_big
-
-# template <- terra::unwrap(mosmicrosim:::ye_gads_wrapped)
-#
-# e <- ext(-5, 5, 8, 26)
-# template <- crop(template, e)
-# template <- disagg(template, 4)
-# debugonce(create_tc_clearsky_raster)
-plan(multisession,
-     workers = 8)
-system.time(
-  create_tc_clearsky_raster(tc_template)
+# process these variables for input to NichMapR
+tile_data_for_nichemapr <- process_terraclimate_tile_vars(
+  terraclimate_tile_data = terraclimate_tile_data
 )
 
-# assuming this works, is fast, then move code into ye_gads.R, expand to
-# whole world, and save the raster the package itself for later use.
+# spline interpolate these to daily max/min data:
 
-# make the clear sky function use this lookup, and enable batch processing
-
-# make the clear sky function and solar attenuation rasters batch-process
-
-# make it batch-process, too
-
-tc_clearsky <- get_tc_clearsky_raster()
-plot(tc_clearsky[[c(1, 3, 5, 7)]])
-plot(tc_clearsky[[c(1)]])
-tc_template
-
-
-# library(profvis)
-#
-# profvis::profvis(
-#   replicate(10,
-#             clear_sky_radiation_12mo(latitude, longitude))
-# )
-# prepare monthly terraclimate data for spline interpolation
-
-
-res <- micro_global(loc = c(0, 0), solonly = 1)
-res$metout
-
-
-# convert precipitation to log scale to spline
-climate_monthly$log_rainfall_mm <- log1p(climate_monthly$rainfall_mm)
-
-# # compare with the Hulmes interpolated cloud cover raster at this site
-# cloud_cover_data <- get_cloud_cover_raster()
-# cloud_cover_hulmes <- terra::extract(cloud_cover_data,
-#                                      data.frame(longitude, latitude))
-# srad_sry <- tapply(climate_monthly$srad, monthly_index, FUN = mean)
-#
-# # our calculation from solar radiation is too high
-#
-# par(mfrow = c(1, 2))
-#
-# # from Hulmes:
-# plot(t(cloud_cover_hulmes[, -1]), ylim = c(0, 100))
-#
-# # from our calculation:
-# plot(cloud_cover(srad_sry, clearsky_radiation_monthly, multiplier = 1),
-#      ylim = c(0, 100))
-
-# spline these to the requested dates
-climate_daily <- data.frame(
-  date = dates
-)
-new_var <- c("tmax", "tmin",
-             "rhmax", "rhmin",
-             "wsmin", "wsmax",
-             "ccmax", "ccmin",
-             "log_rainfall_mm")
-for (var in new_var) {
-  climate_daily[, var] <- spline_seasonal(values = climate_monthly[, var],
-                                          dates = climate_monthly[, "mid_date"],
-                                          dates_predict = climate_daily[, "date"])
-}
-
-# convert log rainfall back
-climate_daily$rainfall_mm <- expm1(climate_daily$log_rainfall_mm)
-
-
-
-# we need to compute clearsky solar radiation per pixel, which requires running
-# NicheMapR, but this seems to mostly take time running the solar_attenuation
-# function, which executes fortran code on GADS. It's low resolution, so a look
-# up would be much more performant. Then the clearsky stuff could be computed.
-# First though, we need to work out the native resolution and orientation of the
-# GADS data underlying the fortran code, so we can query it. This is given in
-# the code for the R GADS implementation in NicheMapR:
-
-
-# this is running the fortran code across everything?!
-
-str(solar_attenuation_lookup$solar_attenuation[[1]], 1)
-
-# to do:
-
-# put this code to create the lookup in a script in data-raw
-
-# save the files to disk with these commands
-
-# write functions to batch lookup solar attenuation tables from this dataset
-
-
-
-
-# need to save this reload this
-
-# need a function to do batch lookups by extracting cell IDs from the raster,
-# then left-joining the table. These can then be passed into create_micro, so
-# skip having to run that step.
-
-library(profvis)
-profvis::profvis(
-  system.time(
-    replicate(100,
-              clear_sky_radiation_12mo(latitude, longitude))
-  )
-)
-
+nichemapr_vars <- c("tmax", "tmin",
+                    "rhmax", "rhmin",
+                    "wsmin", "wsmax",
+                    "ccmax", "ccmin",
+                    "log1p_rainfall")
 
 system.time(
-  replicate(100,
-            clear_sky_radiation_12mo(latitude, longitude))
+  res <- tile_data_for_nichemapr |>
+    # dplyr::filter(
+    #   longitude == min(longitude) | latitude == min(latitude)
+    # ) |>
+    # pivot_longer by variable
+    tidyr::pivot_longer(
+      cols = all_of(nichemapr_vars),
+      names_to = "variable",
+      values_to = "value"
+    ) |>
+    # group by location and variable
+    dplyr::group_by(
+      longitude,
+      latitude,
+      variable
+    ) |>
+    # for each location and variable, run spline_seasonal to interpolate to daily data
+    dplyr::summarise(
+      date = list(dates),
+      value = list(spline_seasonal(values = value,
+                                   dates = mid_date,
+                                   dates_predict = dates)),
+      .groups = "drop"
+    ) |>
+    tidyr::unnest(
+      c(date, value)
+    )
 )
 
-system.time(
-  replicate(100,
-            solar_attenuation(latitude, longitude))
-)
-v
+# need wrapper function to do the following for monthly data at each location:
+# 1. spline interpolation (to daily)
+# 2. microclimate simulation (to hourly)
+# 3. water body simulation (hourly)
+# 4. population dynamics (hourly)
+# 5. summarise population dynamics back to monthly
+
+# then execute this in parallel across all cells in a tile
+
+
+# # convert log rainfall back
+# climate_daily$rainfall_mm <- expm1(climate_daily$log_rainfall_mm)
+
+
 
 
 # To do:
 
 # Build wrapper functions to:
 
-# Create processing tiles - FUNCTION DONE
+# Create processing tiles - DONE
 
-# create clearsky_rad raster for terraclimate
+# create clearsky_rad raster for terraclimate - DONE
 
 # Within each tile:
 
-# download all terraclimate data for the tile 2000-2025 - FUNCTION DONE
+# download all terraclimate data for the tile 2000-2025 - DONE
 
   # For each pixel in the tile:
 
-    # format terraclimate to get NicheMapR inputs
+    # format terraclimate to get NicheMapR inputs - DONE
 
-    # run spline interpolation to get daily outdoor data 2000-2025
+    # run spline interpolation to get daily outdoor data 2000-2025 - DONE
 
     # run NicheMapR to get hourly microclimate data 2000-2025
 

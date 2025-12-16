@@ -16,7 +16,7 @@ Imports:
     lubridate,
     mgcv,
     ncdf4,
-    NicheMapR (>= 3.3.1),
+    NicheMapR (>= 3.2.1),
     terra
 Suggests: 
     testthat (>= 3.0.0)

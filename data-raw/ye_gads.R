@@ -68,12 +68,12 @@ gads_lookup_coords <- terra::xyFromCell(
   cells(ye_gads)
 ) |>
   dplyr::as_tibble() |>
-  rename(
+  dplyr::rename(
     longitude = x,
     latitude = y,
   ) |>
   # add on cell IDs (the slow way to make sure they are in the right order)
-  mutate(
+  dplyr::mutate(
     cell_id = terra::extract(
       ye_gads,
       cells(ye_gads)
@@ -88,13 +88,13 @@ plan(multisession, workers = 8)
 # compute solar attenuation for each cell, and store as a list column
 solar_attenuation_lookup <- gads_lookup_coords |>
   # compute the solar attenuation curves
-  mutate(
+  dplyr::mutate(
     solar_attenuation = future_map2(.x = latitude,
                                     .y = longitude,
                                     .f = mosmicrosim:::solar_attenuation_gads)
   ) |>
   # drop the coordinates, now we have the lookup
-  select(
+  dplyr::select(
     -latitude,
     -longitude
   )
@@ -147,12 +147,12 @@ tc_gads_lookup_coords <- terra::xyFromCell(
   cells(tc_gads)
 ) |>
   dplyr::as_tibble() |>
-  rename(
+  dplyr::rename(
     longitude = x,
     latitude = y,
   ) |>
   # add on cell IDs (the slow way to make sure they are in the right order)
-  mutate(
+  dplyr::mutate(
     cell_id = terra::extract(
       tc_gads,
       cells(tc_gads)
@@ -165,7 +165,7 @@ plan(multisession, workers = 8)
 # compute monthly synoptic celar sky radiation values for the world, at hybrid
 # GADS and terraclimate resolution. Takes about 30 mins in parallel on my MBP
 clear_sky_lookup <- tc_gads_lookup_coords |>
-  mutate(
+  dplyr::mutate(
     clear_sky_SOLR = future_map2(.x = latitude,
                                  .y = longitude,
                                  .f = mosmicrosim:::clear_sky_radiation_12mo_nichemapr,
@@ -175,7 +175,7 @@ clear_sky_lookup <- tc_gads_lookup_coords |>
                                  .options = furrr_options(seed = NULL))
   ) |>
   # drop the coordinates, now we have the lookup
-  select(
+  dplyr::select(
     -latitude,
     -longitude
   )

@@ -32,9 +32,9 @@ terraclimate_available_indices <- function() {
 
     # find times and places for which there are data, and return
     tc_avail_indices <-list(
-      times = ncvar_get(con, "time"),
-      longitudes = ncvar_get(con, "lon"),
-      latitudes = ncvar_get(con, "lat")
+      times = ncdf4::ncvar_get(con, "time"),
+      longitudes = ncdf4::ncvar_get(con, "lon"),
+      latitudes = ncdf4::ncvar_get(con, "lat")
     )
 
     options(.tc_avail_indices = tc_avail_indices)
@@ -412,23 +412,23 @@ terraclimate_extract_tile <- function(tile_number, tiles, dates, variables) {
       stringsAsFactors = FALSE
     ) |>
     dplyr::as_tibble() |>
-    rename(
+    dplyr::rename(
       value = Freq
     ) |>
-    filter(
+    dplyr::filter(
       !is.na(value)
     ) |>
-    mutate(
+    dplyr::mutate(
       longitude = as.numeric(longitude),
       latitude = as.numeric(latitude),
       start = as.Date(start)
     ) |>
     # add on the end dates
-    left_join(
+    dplyr::left_join(
       dplyr::as_tibble(tile_slice$dates),
       by = "start"
     ) |>
-    relocate(
+    dplyr::relocate(
       end,
       .after = start
     )
@@ -446,35 +446,59 @@ terraclimate_extract_tile <- function(tile_number, tiles, dates, variables) {
 # involves running NicheMapR in solonly mode for each pixel, and can be slow.
 process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
 
-  # extract clearsky data for this tile data
+  # batch append the clearsky monthly synoptic data from the in-package
+  # information
 
-  clearsky_lookup <- terraclimate_tile_data |>
-    distinct(
-      latitude,
-      longitude
-    ) |>
-    mutate(
-      # do query of clearsky monthly
-      stop()
-    ) |>
-    rename(
-      latitude,
+  # get the raster of tc-GADS hybrid cell numbers
+  tc_gads <- terra::unwrap(tc_gads_wrapped)
+
+  # find unique coordinates in this tile
+  unique_coords <- terraclimate_tile_data |>
+    dplyr::distinct(
       longitude,
-      month,
-      clearsky_rad
+      latitude
+    )
+
+  # add on the cell ID
+  clearsky_lookup <- unique_coords |>
+    dplyr::mutate(
+      cell_id = terra::extract(tc_gads,
+                                 unique_coords,
+                                 ID = FALSE)[, 1]
+    ) |>
+    # and the clearsky monthly information for these cells
+    dplyr::left_join(
+      clear_sky_lookup,
+      by = "cell_id"
+    ) |>
+    dplyr::select(
+      -cell_id
+    ) |>
+    # add on a month ID
+    dplyr::mutate(
+      month_id = list(1:12),
+      .before = clear_sky_SOLR
+    ) |>
+    # unnest lists
+    tidyr::unnest(
+      c(month_id, clear_sky_SOLR)
+    ) |>
+    # get rid of column-ness
+    dplyr::mutate(
+      clear_sky_SOLR = as.numeric(clear_sky_SOLR)
     )
 
   # process terraclimate data into format required for NicheMapR micro function
   terraclimate_tile_data |>
     # add a midpoint date, for looking up solar radiation max/min, and later
     # for splining
-    mutate(
+    dplyr::mutate(
       mid_date = start + (end - start) / 2,
       .before = start
     ) |>
     # compute relative humidity max/min, by first computing vapour pressure
     # from mean temp and vp deficit then computing RH at max/min temps
-    mutate(
+    dplyr::mutate(
       tmean = (tmax + tmin) / 2,
       vp = vapour_pressure(tmean, vpd),
       rhmax = relative_humidity(tmin, vp),
@@ -482,7 +506,7 @@ process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
     ) |>
     # adjust wind speed from measured height (10m) to match the other inputs
     # (2m) and split by max/min (using NicheMapR's ad-hoc adjusment for min)
-    mutate(
+    dplyr::mutate(
       wsmax = adjust_wind_speed(ws, height_required = 2, height_measured = 10),
       wsmin = wsmax * 0.1
     ) |>
@@ -490,28 +514,31 @@ process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
     # coordinates and aerosol data) and use this to compute cloud cover
     # percentage from solar radiation (terraclimate) and and manual multipliers
     # to enforce daily variation, as used in NicheMapR
-    mutate(
-      month = lubridate::month(mid_date)
+    dplyr::mutate(
+      month_id = lubridate::month(mid_date)
     ) |>
-    left_join(
+    dplyr::left_join(
       clearsky_lookup,
-      by = c("latitude", "longitude", "month")
+      by = c("latitude", "longitude", "month_id")
     ) |>
-    mutate(
-      ccmax = cloud_cover(srad, clearsky_rad, multiplier = 1.2),
-      ccmin = cloud_cover(srad, clearsky_rad, multiplier = 0.8)
+    # compute cloud cover
+    dplyr::mutate(
+      ccmax = cloud_cover(srad, clear_sky_SOLR, multiplier = 1.2),
+      ccmin = cloud_cover(srad, clear_sky_SOLR, multiplier = 0.8)
     ) |>
-    # rename precipitation to rainfall, since we assume that's how it falls in
-    # areas we are interested in (no mosquitoes in snowfall areas, at least in
-    # places with major VBDs)
-    rename(
-      rainfall = ppt
+    # log(1+x) transform precipitation (assumed rainfall in non-snowfall areas
+    # we care about)
+    dplyr::mutate(
+      log1p_rainfall = log1p(ppt)
     ) |>
-    select(-ws,
-           -vpd,
-           -vp,
-           -tmean,
-           -clearsky_rad,
-           -month)
+    # remove intermediate calculations we no longer need
+    dplyr::select(-ws,
+                  -vpd,
+                  -vp,
+                  -srad,
+                  -ppt,
+                  -tmean,
+                  -clear_sky_SOLR,
+                  -month_id)
 
 }
