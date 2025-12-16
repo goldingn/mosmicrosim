@@ -250,6 +250,29 @@ template <- rast("~/Dropbox/github/ir_cube/data/clean/raster_mask.tif")
 # from template cells with data)
 tc_template <- make_terraclimate_template(template)
 
+# make an altitude raster on the right pixels by disaggregating and resampling
+# the lower-res NicheMapR one, and interpolating coastal regions
+altitude_nichemapr <- get_altitude_raster()
+agg <- round(mean(res(altitude_nichemapr) / res(tc_template)))
+altitude <- altitude_nichemapr |>
+  terra::disagg(agg) |>
+  terra::crop(tc_template) |>
+  terra::resample(tc_template,
+                  method = "bilinear",
+                  na.rm = TRUE) |>
+  terra::mask(tc_template)
+
+# extend out this layer to match
+altitude_blur <- terra::focal(altitude,
+                              w = 5,
+                              fun = "mean",
+                              na.policy = "only")
+altitude_blur[!is.na(altitude)] <- altitude
+altitude <- terra::mask(altitude_blur, tc_template)
+
+# why does the point fall outside the terraclimate template?
+
+
 # now batch-process this by defining tiles covering the continent,
 # and extracting whole slices for those tiles for the required times
 
@@ -294,133 +317,194 @@ dates <- seq(as.Date("2020-01-01"),
              as.Date("2024-12-31"),
              by = "1 day")
 
-# variables required for running NicheMapR sims
-vars <- c("tmax", "tmin",  # temperature
-          "ppt",  # precipitation
-          "ws",  # wind speed
-          "vpd",  # vapor pressure deficit (for rel humidity)
-          "srad")  # solar radiation
+# set up microclimate parameters
+microclimate_params <- list(
+  shade_proportion = 0.95,
+  adult_height = 0.1
+)
 
+# variables required for running NicheMapR sims
 
 # extract all terraclimate data for this tile
 tile_data <- terraclimate_extract_tile(tile_number = 1,
                                        tiles = tiles,
-                                       dates = dates,
-                                       variables = vars)
-
-# # plot some things
-# tile_data_plot <- tile_data |>
-#   # add a cell id for plotting
-#   group_by(
-#     latitude,
-#     longitude
-#   ) |>
-#   mutate(
-#     cell_id = cur_group_id(),
-#     .before = everything()
-#   ) |>
-#   ungroup()
-#
-# tile_data_plot |>
-#   filter(
-#     cell_id %in% sample.int(n_distinct(tile_data_plot$cell_id), 5)
-#   ) |>
-#   mutate(
-#     date = start + (end - start) / 2,
-#     .after = end
-#   ) |>
-#   ggplot(
-#     aes(
-#       x = date,
-#       y = value,
-#       colour = factor(cell_id)
-#     )
-#   ) +
-#   geom_line() +
-#   facet_wrap(
-#     ~variable,
-#     scales = "free_y"
-#   ) +
-#   theme_minimal()
+                                       dates = dates) |>
+  # subset to only those cells inside the template raster
+  clean_tile_data(tc_template)
 
 
-# do splining of monthly data to daily for each cell in this tile
 
-# pivot to wide format on variables for processing to NicheMapR inputs
-terraclimate_tile_data <- tile_data |>
-  tidyr::pivot_wider(names_from = variable,
-                     values_from = value)
 
-# process these variables for input to NichMapR
-tile_data_for_nichemapr <- process_terraclimate_tile_vars(
-  terraclimate_tile_data = terraclimate_tile_data
-)
+# subset this for now for testing
+tile_data_sub <- tile_data |>
+  dplyr::filter(
+    longitude %in% longitude[1:2],
+    latitude %in% latitude[1:2]
+  )
 
-# spline interpolate these to daily max/min data:
+# process these variables for input to NicheMapR
+sims <- tile_data_sub |>
 
-nichemapr_vars <- c("tmax", "tmin",
-                    "rhmax", "rhmin",
-                    "wsmin", "wsmax",
-                    "ccmax", "ccmin",
-                    "log1p_rainfall")
+  # convert all terraclimate variables to the required NicheMapR input types,
+  # stored in a per-location tibble in the 'monthly_climate' column
+  process_terraclimate_tile_vars() |>
 
-# takes about 1.5min to spline interpolate all 9 variables at 958 locations, 5y,
-# not in parallel
-system.time(
-  res <- tile_data_for_nichemapr |>
-    # pivot_longer by variable
-    tidyr::pivot_longer(
-      cols = all_of(nichemapr_vars),
-      names_to = "variable",
-      values_to = "value"
-    ) |>
-    # group by location and variable
-    dplyr::group_by(
-      longitude,
-      latitude,
-      variable
-    ) |>
-    # for each location and variable, run spline_seasonal to interpolate to daily data
-    dplyr::summarise(
-      date = list(dates),
-      value = list(spline_seasonal(values = value,
-                                   dates = mid_date,
-                                   dates_predict = dates)),
-      .groups = "drop"
-    ) |>
-    tidyr::unnest(
-      c(date, value)
-    )
-)
+  # append altitude of each site based on the coordinates
+  dplyr::mutate(
+    altitude = altitude_m(
+      longitude = longitude,
+      latitude = latitude,
+      altitude_raster = altitude
+    ),
+    .before = monthly_climate
+  ) |>
 
-#
-# res |>
-#   dplyr::filter(
-#     latitude == latitude[1],
-#     longitude == longitude[1],
-#   ) |>
+  # this sub-monthly modelling section to be replaced with a single wrapper
+  # function taking monthly climate data and converting it into monthly vector
+  # abundance data
+
+  # interpolate daily climate data from monthly climate data
+  dplyr::group_by(
+    longitude,
+    latitude,
+    altitude
+  ) |>
+  dplyr::summarise(
+    daily_climate = list(
+      daily_from_monthly_climate(
+        monthly_climate = monthly_climate[[1]]
+      )
+    ),
+    .groups = "drop"
+  ) |>
+
+  # simulate hourly (micro-)climate data from daily climate data
+  dplyr::group_by(
+    longitude,
+    latitude,
+    altitude,
+  ) |>
+  dplyr::summarise(
+    hourly_climate = list(
+      hourly_from_daily_climate(
+        latitude = latitude,
+        longitude = longitude,
+        altitude = altitude,
+        daily_climate = daily_climate[[1]],
+        microclimate = microclimate_params
+      )
+    ),
+    .groups = "drop"
+  ) |>
+  dplyr::group_by(
+    longitude,
+    latitude,
+    altitude,
+    hourly_climate
+  ) |>
+  dplyr::summarise(
+    water_surface_area = list(
+      simulate_ephemeral_habitat(
+        hourly_climate = hourly_climate[[1]],
+        altitude = altitude,
+        initial_volume = 0,
+        burnin_years = 0,
+        max_cone_depth = 1,
+        inflow_multiplier = 1
+      )
+    ),
+    .groups = "drop"
+  )
+
+par(mfrow = c(2, 2))
+tile_data_sub |>
+  dplyr::filter(
+    start > min(dates),
+    variable == "ppt"
+  ) |>
+  dplyr::pull(value) |>
+  plot(type = "l",
+       main = "monthly rainfall")
+
+sims$hourly_climate[[1]] |>
+  dplyr::filter(date > min(dates)) |>
+  dplyr::pull(rainfall) |>
+  plot(type = "l",
+       main = "hourly rainfall")
+sims$water_surface_area[[1]][sims$hourly_climate[[1]]$date > min(dates)] |>
+  plot(type = "l",
+       main = "water furface area")
+
+# auto-extend 'dates' earlier, to better initialise model
+
+# # raw rainfall data
+# tile_data_sub |>
+#   dplyr::filter(variable == "ppt") |>
 #   dplyr::mutate(
-#     variable_group = dplyr::case_when(
-#       variable %in% c("ccmax", "ccmin") ~ "cloud cover",
-#       variable %in% c("rhmax", "rhmin") ~ "humidity",
-#       variable %in% c("tmax", "tmin") ~ "temperature",
-#       variable %in% c("wsmax", "wsmin") ~ "wind speed",
-#       .default = "rainfall"
-#     )
+#     mid = start + (end - start) / 2,
+#     year = lubridate::year(mid)
 #   ) |>
-#   ggplot(
-#     aes(
-#       x = date,
-#       y = value,
-#       colour = variable
-#     )
-#   ) +
-#   geom_line() +
-#   facet_wrap(
-#     ~variable_group,
-#     scales = "free_y"
-#   ) +
-#   theme_minimal()
+#   dplyr::group_by(year) |>
+#   dplyr::summarise(
+#     value = sum(value)
+#   )
+
+# need to copy over and apply the water body simulation
+
+# need to copy over and apply the an gambiae population dynamics
+
+# wrapper function:
+
+# # need to add microclimate information (like in An stephensi version)
+
+
+# input: tile_data_for_nichemapr
+
+# group by locations
+
+# convert all the temporal information into a list-column of monthly data (so
+# each row is one location)
+
+# append the altitude for the nichemapr lookup
+
+# append the microhabitat information
+
+# then in the major parallel wrapper, for each row:
+# - take the monthly data tibble and compute a tibble of the daily data (using
+#    spline seasonal)
+# - feed this and the other row information into create_micro()
+# - feed the output of create_micro() into NicheMapR::microclimate()
+# - feed the output of NicheMapR::microclimate() into the waterbody simulation
+#    (to bring over from Anopheles stephensi work)
+# - feed the output of NicheMapR::microclimate() and the waterbody simulation
+#    into the population dynamics simulation (to bring over from Anopheles
+#    stephensi work)
+
+
+# when pr
+
+# format it to be make this location-rowwise, add scalar information there, and
+# put the daily data in a separate list column
+
+
+# micro <- create_micro(latitude = latitude,
+#                       longitude = longitude,
+#                       altitude_m = altitude,
+#                       dates = dates,
+#                       daily_temp_max_c = climate_daily$tmax,
+#                       daily_temp_min_c = climate_daily$tmin,
+#                       daily_rh_max_perc = climate_daily$rhmax,
+#                       daily_rh_min_perc = climate_daily$rhmin,
+#                       daily_cloud_max_perc = climate_daily$ccmax,
+#                       daily_cloud_min_perc = climate_daily$ccmin,
+#                       daily_wind_max_ms = climate_daily$wsmax,
+#                       daily_wind_min_ms = climate_daily$wsmin,
+#                       daily_rainfall_mm = climate_daily$rainfall_mm,
+#                       weather_height_m = 2,
+#                       adult_height_m = adult_height,
+#                       even_rain = FALSE,
+#                       shade_prop = shade_proportion)
+
 
 # head(res)
 

@@ -146,7 +146,26 @@ cloud_cover <- function(solar_radiation, clear_sky_radiation, multiplier = 1) {
   cloud
 }
 
+# numerical stuff
 
+# ensure all values of x are greater than or equal to min
+# this is much faster than pmax(x, min)
+ensure_gte <- function(x, min = .Machine$double.eps) {
+  mask <- as.numeric(x >= min)
+  x * mask + min * (1 - mask)
+}
+
+# this is much faster than pmax(0, x)
+ensure_positive <- function(x) {
+  x * as.numeric(x > 0)
+}
+
+# this is much faster than pmin(x, max)
+enforce_max <- function(x, max) {
+  too_big <- x > max
+  x[too_big] <- max
+  x
+}
 
 # calculate the mean of the variable only for the time when it has a positive
 # value
