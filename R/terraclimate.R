@@ -372,12 +372,21 @@ make_tiles <- function(template, target_n_tiles = 100) {
 
 # given an integer 'tile_number' for the tile to extract (indexing tiles), a
 # matrix 'tiles' of tile extents (each row giving the bounding box), a vector of
-# 'dates' for which we need data, and a vector of 'variables' required, extract
-# monthly terraclimate data on those variables, for all cells in that tile, for
-# all available months, where possible extending beyond 'dates' to enable
-# improved spline interpolation, and return as a tibble, identifying the cell by
-# the latitude and longitude of its centroid.
-terraclimate_extract_tile <- function(tile_number, tiles, dates, variables) {
+# 'dates' for which we need data, and a vector of 'variables' required (by
+# default those we can convert o NicheMapR inputs), extract monthly terraclimate
+# data on those variables, for all cells in that tile, for all available months,
+# where possible extending beyond 'dates' to enable improved spline
+# interpolation, and return as a tibble, identifying the cell by the latitude
+# and longitude of its centroid.
+terraclimate_extract_tile <- function(tile_number,
+                                      tiles,
+                                      dates,
+                                      variables = c("tmax",
+                                                    "tmin",
+                                                    "ppt",
+                                                    "ws",
+                                                    "vpd",
+                                                    "srad")) {
 
   # make an extent object for this tile
   tile <- ext(tiles[tile_number, ])
@@ -435,6 +444,39 @@ terraclimate_extract_tile <- function(tile_number, tiles, dates, variables) {
 
 }
 
+# clean extracted terraclimate tile data, by removing all cells that are outside
+# the raster template
+clean_tile_data <- function(tile_data, tc_template) {
+
+  # get all coordinates in tile data
+  all_coords <- tile_data |>
+    dplyr::distinct(
+      longitude, latitude
+    )
+
+  # find the valid ones
+  valid_coords <- all_coords |>
+    dplyr::mutate(
+      value = terra::extract(
+        tc_template,
+        coords,
+        ID = FALSE
+      )[, 1]
+    ) |>
+    dplyr::filter(
+      !is.na(value)
+    ) |>
+    dplyr::select(
+      -value
+    )
+
+  # subset to these
+  valid_coords |>
+    dplyr::left_join(
+      tile_data
+    )
+
+}
 
 
 # Given a tibble of extracted monthly terraclimate data in wide format
@@ -443,8 +485,8 @@ terraclimate_extract_tile <- function(tile_number, tiles, dates, variables) {
 # humidity, min/max windspeed, min/max cloud cover, and rename precipitation as
 # rainfall (assumed no snow in areas we consider for mosquito population
 # dynamics). This involves execution of clear_sky_radiation_12mo(), which
-# involves running NicheMapR in solonly mode for each pixel, and can be slow.
-process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
+# involves running NicheMapR in solonly mode for each pixel, and can be slow. the user m
+process_terraclimate_tile_vars <- function(tile_data) {
 
   # batch append the clearsky monthly synoptic data from the in-package
   # information
@@ -453,7 +495,7 @@ process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
   tc_gads <- terra::unwrap(tc_gads_wrapped)
 
   # find unique coordinates in this tile
-  unique_coords <- terraclimate_tile_data |>
+  unique_coords <- tile_data |>
     dplyr::distinct(
       longitude,
       latitude
@@ -489,12 +531,18 @@ process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
     )
 
   # process terraclimate data into format required for NicheMapR micro function
-  terraclimate_tile_data |>
+  tile_data |>
     # add a midpoint date, for looking up solar radiation max/min, and later
-    # for splining
+    # for splining, plus a number of days for computing daily rainfall
     dplyr::mutate(
       mid_date = start + (end - start) / 2,
+      n_days = as.numeric(end - start),
       .before = start
+    ) |>
+    # pivot wider to compute things
+    tidyr::pivot_wider(
+      names_from = variable,
+      values_from = value
     ) |>
     # compute relative humidity max/min, by first computing vapour pressure
     # from mean temp and vp deficit then computing RH at max/min temps
@@ -526,19 +574,30 @@ process_terraclimate_tile_vars <- function(terraclimate_tile_data) {
       ccmax = cloud_cover(srad, clear_sky_SOLR, multiplier = 1.2),
       ccmin = cloud_cover(srad, clear_sky_SOLR, multiplier = 0.8)
     ) |>
-    # log(1+x) transform precipitation (assumed rainfall in non-snowfall areas
+    # convert monthly to daily precipitation (assumed rainfall in non-snowfall areas
     # we care about)
     dplyr::mutate(
-      log1p_rainfall = log1p(ppt)
+      rainfall_daily = ppt / n_days
     ) |>
-    # remove intermediate calculations we no longer need
-    dplyr::select(-ws,
-                  -vpd,
-                  -vp,
-                  -srad,
-                  -ppt,
-                  -tmean,
-                  -clear_sky_SOLR,
-                  -month_id)
+    # group by lat and long and store the monthly data we need as a list column
+    dplyr::group_by(
+      longitude,
+      latitude
+    ) |>
+    dplyr::summarise(
+      monthly_climate = list(
+        tibble::tibble(
+          start,
+          end,
+          mid_date,
+          tmin, tmax,
+          rhmin, rhmax,
+          wsmin, wsmax,
+          ccmin, ccmax,
+          rainfall_daily
+        )
+      ),
+      .groups = "drop"
+    )
 
 }
