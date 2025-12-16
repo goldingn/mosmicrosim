@@ -89,3 +89,9 @@ relative_humidity <- function(temperature, vapour_pressure) {
   rh <- pmax(rh, 0.01)
   rh
 }
+
+# calculate the mean of the variable only for the time when it has a positive
+# value
+mean_if_positive <- function(x) {
+  mean(x[x > 0])
+}

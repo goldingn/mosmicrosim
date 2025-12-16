@@ -65,7 +65,7 @@ FALSE, have it all fall at midnight.}
 
 \item{soil_reflectance}{soil solar reflectance, decimal \%}
 
-\item{solar_attenuation_data}{dataframe giving on solar attenuation at the
+\item{solar_attenuation_data}{dataframe giving solar attenuation at the
 111 wavelengths for the given location, as created using
 \code{solar_attentuation()}}
 }

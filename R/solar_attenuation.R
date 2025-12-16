@@ -1,8 +1,9 @@
-# compute solar attenuation data for a given set of latitudes and longitudes,
+# compute solar attenuation data for a given latitude and longitude,
 # either using spatially-varying estimates from GADS, via a precomputed lookup
 # table, or by running GADS code (attempting to use fortran version, and falling
 # back on the R version if that fails), or using the non-spatial estimate of
-# Elterman. If a single set of coordinates is given
+# Elterman.
+#' @export
 solar_attenuation <- function(latitude,
                               longitude,
                               which = c("GADS_lookup",
@@ -66,8 +67,8 @@ solar_attenuation_elterman <- c(0.42, 0.415, 0.412, 0.408, 0.404, 0.4, 0.395,
 
 
 # run GADS to compute
-solar_attenuation_gads <- function(latitude = latitude,
-                                   longitude = longitude,
+solar_attenuation_gads <- function(latitude,
+                                   longitude,
                                    method = c("fortran>R", "R", "fortran")) {
 
   # switch between fortran (crashy) and R versions of GADS
@@ -119,35 +120,35 @@ gads_try_fortran <- function(lat, lon, relhum, season) {
 
 }
 
-# load the GADS lookup raster (replace this filepath with a system.file() call
-# once the package is building)
+# # load the GADS lookup raster (replace this filepath with a system.file() call
+# # once the package is building)
+ye_gads_file <- system.file("extdata",
+                            "ye_gads.tif",
+                            package = "mosmicrosim")
 ye_gads <- terra::rast(
-  "inst/extdata/ye_gads.tif"
+  ye_gads_file
 )
-
-# load the lookup table to attenuation curves
-load("R/sysdata.rda")
+# wrap it, so it can be serialised (e.g. passed to future) without losing the
+# pointe
+ye_gads_wrapped <- terra::wrap(ye_gads)
 
 solar_attenuation_gads_lookup <- function(latitude = latitude,
                                           longitude = longitude) {
 
-  library(tidyverse)
-  library(terra)
-
   # lookup the GADS cell number using the raster
-
+  ye_gads <- terra::unwrap(ye_gads_wrapped)
   cell_ids <- terra::extract(ye_gads,
                              cbind(longitude, latitude),
                              cells = FALSE) |>
-    as_tibble()
+    dplyr::as_tibble()
 
   # pull out the solar attenuation information for this cell
   cell_ids |>
-    left_join(
+    dplyr::left_join(
       solar_attenuation_lookup,
       by = "cell_id"
     ) |>
-    select(
+    dplyr::select(
       -cell_id
     ) |>
     # unpack list
