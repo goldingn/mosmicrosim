@@ -90,6 +90,64 @@ relative_humidity <- function(temperature, vapour_pressure) {
   rh
 }
 
+
+# adjust the wind speed from the height at which it was measured to the height
+# required for modelling, based on the terrain (default to level grass and
+# NicheMapR terraclimate default heights).
+adjust_wind_speed <- function(wind_speed,
+                              height_required = 2,
+                              height_measured = 10,
+                              terrain = c("level grass",
+                                          "open water",
+                                          "crops/bushes",
+                                          "trees/buildings/mountains")) {
+
+  # From NicheMapR:
+  # Correct for fact that wind is measured at 10m height
+  # wind shear equation: v / vo = (h / ho)^a
+  # where
+  # v = the velocity at height h (m/s)
+  # vo = the velocity at height ho (m/s)
+  # a = the wind shear exponent
+  # source http://www.engineeringtoolbox.com/wind-shear-d_1215.html
+
+  # Terrain                       Wind Shear Exponent
+  # -----------------------------|---------------------------
+  # Open water                    0.1
+  # Smooth, level, grass-covered  0.15 (or more commonly 1/7)
+  # Row crops 	                  0.2
+  # Low bushes with a few trees 	0.2
+  # Heavy trees 	                0.25
+  # Several buildings 	          0.25
+  # Hilly, mountainous terrain 	  0.25
+
+  terrain <- match.arg(terrain)
+  exponent <- switch(terrain,
+                     "open water" = 0.1,
+                     "level grass" = 0.15,
+                     "crops/bushes" = 0.2,
+                     "trees/buildings/mountains" = 0.25)
+
+  # wind shear equation: v / vo = (h / ho)^a
+  wind_speed * (height_required / height_measured) ^ exponent
+
+}
+
+# Calculate the average percentage of the sky covered by cloud. solar_radiation
+# is terraclimate's downward surface shortwave radiation (W/m^2).
+# clear_sky_radiation is the solar radiation in a clear sky in the same units,
+# from Nichemapr. multiplier is a manual muliplier on the output percentage. The
+# results will then be clamped to between 0 and 100 percent.
+cloud_cover <- function(solar_radiation, clear_sky_radiation, multiplier = 1) {
+  cloud <- (1 - solar_radiation / clear_sky_radiation) * 100
+  cloud <- cloud * multiplier
+  cloud <- pmin(cloud, 100)
+  cloud <- pmax(cloud, 0)
+  cloud
+}
+
+
+
 # calculate the mean of the variable only for the time when it has a positive
 # value
 mean_if_positive <- function(x) {

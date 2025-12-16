@@ -10,11 +10,13 @@ Encoding: UTF-8
 Roxygen: list(markdown = TRUE)
 RoxygenNote: 7.3.3
 Imports: 
+    abind,
     dplyr,
     furrr,
     lubridate,
+    mgcv,
     ncdf4,
-    NicheMapR (>= 3.2.1),
+    NicheMapR (>= 3.3.1),
     terra
 Suggests: 
     testthat (>= 3.0.0)
