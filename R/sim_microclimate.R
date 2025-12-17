@@ -113,16 +113,21 @@ hourly_from_daily_climate <- function(latitude,
 # from sunset to midnight, and a linear trend from midnight to the next sunrise.
 # The timing of sunrise (time_sunrise, default 6am), sunset (time_sunset,
 # default 6pm), and the timing of the daily max temperature (time_daily_max,
-# default 1pm) can be specified as integers in military time (600 is 6am, 1300
-# is 1pm, 2400 is midnight, etc.).
+# default 1pm) can be specified as units of hours (6 is 6am, 13
+# is 1pm, 24 is midnight, etc.).
 interpolate_daily_air_temp <- function(daily_max, daily_min,
-                                       time_sunrise = 600,
-                                       time_sunset = 1800,
-                                       time_daily_max = 1300) {
+                                       time_sunrise = 6,
+                                       time_sunset = 18,
+                                       time_daily_max = 13) {
 
   # rename inputs to scheme
   temp_max_day <- daily_max
   temp_min_day <- daily_min
+
+  # multiply times by 100 to match nichemapper units and parameter choices
+  time_sunrise <- time_sunrise * 100
+  time_sunset <- time_sunset * 100
+  time_daily_max <- time_daily_max * 100
 
   # set up times for interpolation
   n_days <- length(temp_max_day)
@@ -206,7 +211,7 @@ interpolate_daily_air_temp <- function(daily_max, daily_min,
 
   # return the temperature and times
   data.frame(
-    time = times,
+    time = times / 100,
     temperature = temp_hour
   )
 
@@ -225,10 +230,11 @@ interpolate_daily_air_temp <- function(daily_max, daily_min,
 # # plot interpolation and maxima/minima
 # plot(res$temperature,
 #      type = "l")
-# points(max_temps ~ which(res$time == 1300),
+# points(max_temps ~ which(res$time == 13),
 #        pch = 16, col = "red")
-# points(min_temps ~ which(res$time == 600),
+# points(min_temps ~ which(res$time == 6),
 #        pch = 16, col = "blue")
+
 
 # Hourly interpolation of relative humidity from vectors of daily maxima
 # (daily_max) and minima (daily_min). This is based on the nichemapper VSINE
@@ -237,12 +243,12 @@ interpolate_daily_air_temp <- function(daily_max, daily_min,
 # at its daily maximum) to the timing of daily minimum. back to midnight. The
 # timing of sunrise (time_sunrise, default 6am), sunset (time_sunset, default
 # 6pm), and the timing of the daily minimum humidity (time_daily_min, default
-# 1pm) can be specified in hours (600 is 6am, 1300 is 1pm, 2400 is midnight,
+# 1pm) can be specified in units of  hours (6 is 6am, 13 is 1pm, 24 is midnight,
 # etc.).
 interpolate_daily_humidity <- function(daily_max, daily_min,
-                                       time_sunrise = 600,
-                                       time_sunset = 1800,
-                                       time_daily_min = 1300) {
+                                       time_sunrise = 6,
+                                       time_sunset = 18,
+                                       time_daily_min = 13) {
 
   # rename inputs to scheme
   humid_max_day <- daily_max
@@ -250,7 +256,7 @@ interpolate_daily_humidity <- function(daily_max, daily_min,
 
   # set up times for interpolation
   n_days <- length(humid_max_day)
-  times <- rep(100 * seq_len(24), n_days)
+  times <- rep(seq_len(24), n_days)
 
   # expand min and diff vectors to hours, for vectorised lookup
   humid_min_hour <- rep(humid_min_day, each = 24)
@@ -271,7 +277,7 @@ interpolate_daily_humidity <- function(daily_max, daily_min,
 
   # min to midnight, 0 to 0.5
   mask_min_to_mn <- as.numeric(times > time_daily_min)
-  rel_min_to_mn <- (times - time_daily_min) / (2400 - time_daily_min)
+  rel_min_to_mn <- (times - time_daily_min) / (24 - time_daily_min)
   weight_min_to_mn <- 0.5 * pmin(1, pmax(0, rel_min_to_mn)) * mask_min_to_mn
 
   # combined weights
@@ -341,7 +347,6 @@ interpolate_daily_humidity <- function(daily_max, daily_min,
 
 }
 
-
 # # demo
 # n_days <- 6
 # max_humids <- runif(n_days, 85, 92)
@@ -355,7 +360,7 @@ interpolate_daily_humidity <- function(daily_max, daily_min,
 # # plot interpolation and maxima/minima
 # plot(res$humidity,
 #      type = "l")
-# points(max_humids ~ which(res$time == 600),
+# points(max_humids ~ which(res$time == 6),
 #        pch = 16, col = "red")
-# points(min_humids ~ which(res$time == 1300),
+# points(min_humids ~ which(res$time == 13),
 #        pch = 16, col = "blue")
