@@ -236,18 +236,45 @@ interpolate_daily_air_temp <- function(daily_max, daily_min,
 #        pch = 16, col = "blue")
 
 
+# given a vector of times, the time of sunrise (max humidity, min wind), and the
+# other inflection point (min humidity, max wind), all in units of hours,
+# return a corresponding vector of weights for the VSINE routine
+vsine_weights <- function(times, time_sunrise = 6, time_inflection = 13) {
+
+  # make an unscaled curve from 0 to 1, hitting 0.5 at midnight.
+
+  # midnight to sunrise, 0.5 to 1
+  mask_mn_to_sr <- as.numeric(times <= time_sunrise)
+  rel_mn_to_sr <- (time_sunrise - times) / time_sunrise
+  weight_mn_to_sr <- (1 - 0.5 * pmax(0, rel_mn_to_sr)) * mask_mn_to_sr
+
+  # sunrise to inflection, 1 to 0
+  mask_sr_to_inf <- as.numeric(times > time_sunrise & times <= time_inflection)
+  rel_sr_to_inf <- (times - time_sunrise) / (time_inflection - time_sunrise)
+  weight_sr_to_inf <- (1 - pmin(1, pmax(0, rel_sr_to_inf))) * mask_sr_to_inf
+
+  # min to midnight, 0 to 0.5
+  mask_inf_to_mn <- as.numeric(times > time_inflection)
+  rel_inf_to_mn <- (times - time_inflection) / (24 - time_inflection)
+  weight_inf_to_mn <- 0.5 * pmin(1, pmax(0, rel_inf_to_mn)) * mask_inf_to_mn
+
+  # combined weights
+  weight <- weight_mn_to_sr + weight_sr_to_inf + weight_inf_to_mn
+  weight
+
+}
+
+
 # Hourly interpolation of relative humidity from vectors of daily maxima
 # (daily_max) and minima (daily_min). This is based on the nichemapper VSINE
 # routine, with linear interpolation from midnight (when humidity is halfway
-# between the previous day's daily maximum and min) to sunrise (when humidity is
-# at its daily maximum) to the timing of daily minimum. back to midnight. The
-# timing of sunrise (time_sunrise, default 6am), sunset (time_sunset, default
-# 6pm), and the timing of the daily minimum humidity (time_daily_min, default
-# 1pm) can be specified in units of  hours (6 is 6am, 13 is 1pm, 24 is midnight,
-# etc.).
+# between the previous day's daily maximum and this day's minimum) to sunrise
+# (when humidity is at its daily maximum) to the timing of daily minimum. back
+# to midnight. The timing of sunrise (time_sunrise, default 6am) and of the
+# daily minimum humidity (time_daily_min, default 1pm) can be specified in units
+# of  hours (6 is 6am, 13 is 1pm, 24 is midnight, etc.).
 interpolate_daily_humidity <- function(daily_max, daily_min,
                                        time_sunrise = 6,
-                                       time_sunset = 18,
                                        time_daily_min = 13) {
 
   # rename inputs to scheme
@@ -262,46 +289,14 @@ interpolate_daily_humidity <- function(daily_max, daily_min,
   humid_min_hour <- rep(humid_min_day, each = 24)
   humid_max_hour <- rep(humid_max_day, each = 24)
 
-  # make an unscaled curve from 0 to 1, hitting 0.5 at midnight. Export this to
-  # another function
+  # make an unscaled curve of weights from 0 (time_daily_min) to 1
+  # (time_sunrise), passing through 0.5 at midnight
+  weight <- vsine_weights(times = times,
+                          time_sunrise = time_sunrise,
+                          time_inflection = time_daily_min)
 
-  # midnight to sunrise, 0.5 to 1
-  mask_mn_to_sr <- as.numeric(times <= time_sunrise)
-  rel_mn_to_sr <- (time_sunrise - times) / time_sunrise
-  weight_mn_to_sr <- (1 - 0.5 * pmax(0, rel_mn_to_sr)) * mask_mn_to_sr
-
-  # sunrise to min, 1 to 0
-  mask_sr_to_min <- as.numeric(times > time_sunrise & times <= time_daily_min)
-  rel_sr_to_min <- (times - time_sunrise) / (time_daily_min - time_sunrise)
-  weight_sr_to_min <- (1 - pmin(1, pmax(0, rel_sr_to_min))) * mask_sr_to_min
-
-  # min to midnight, 0 to 0.5
-  mask_min_to_mn <- as.numeric(times > time_daily_min)
-  rel_min_to_mn <- (times - time_daily_min) / (24 - time_daily_min)
-  weight_min_to_mn <- 0.5 * pmin(1, pmax(0, rel_min_to_mn)) * mask_min_to_mn
-
-  # combined weights
-  weight <- weight_mn_to_sr + weight_sr_to_min + weight_min_to_mn
-
-
-  # there are jumps between successive days' midnight values, so blend them
-  # between the two by shifting the max and min values on hours
-
-  # for each midnight, the minimum should be the previous day's and the maximum
-  # the next day's
-
-
-  # midnight to sunrise (peak)
-  #   should be previous day's min, this day's max
-
-  # sunrise to daily min (trough)
-  #   should be that day's min and max
-
-  # daily min to midnight
-  #   should be this day's min, next day's max
-
-
-  # this day's max goes from this day's sunrise to next day's sunrise
+  # now adjust the definition of max and min across times to ensure smooth
+  # continuity in linear interpolations
 
   # for each day, if we are before sunrise (peak) use yesterday's min, otherwise
   # use today's
@@ -317,9 +312,6 @@ interpolate_daily_humidity <- function(daily_max, daily_min,
   humid_min_last_hour <- humid_min_hour * (1 - before_sunrise) +
     humid_min_yesterday_hour * before_sunrise
 
-
-  # this day's max goes from the last day's min time to this day's min time
-
   # for each day, if we are before time_daily_min (trough) use today's max,
   # otherwise use tomorrow's max
 
@@ -334,9 +326,8 @@ interpolate_daily_humidity <- function(daily_max, daily_min,
   humid_max_next_hour <- humid_max_hour * (1 - after_daily_min) +
     humid_max_tomorrow_hour * after_daily_min
 
+  # now scale these according to the weights curve
   humid_diff_hour <- humid_max_next_hour - humid_min_last_hour
-
-  # scale these according to to max and min
   humid_hour <- humid_min_last_hour + weight * humid_diff_hour
 
   # return the humidity and times
@@ -363,4 +354,98 @@ interpolate_daily_humidity <- function(daily_max, daily_min,
 # points(max_humids ~ which(res$time == 6),
 #        pch = 16, col = "red")
 # points(min_humids ~ which(res$time == 13),
+#        pch = 16, col = "blue")
+
+# Hourly interpolation of wind speed from vectors of daily maxima (daily_max)
+# and minima (daily_min). This is based on the nichemapper VSINE routine, with
+# linear interpolation from midnight (when wind speed is halfway between the
+# previous day's daily maximum and this day's daily minimum) to sunrise (when
+# wind speed is at its daily minimum) to the timing of daily maximum, back to
+# midnight. The timing of sunrise (time_sunrise, default 6am) and of the daily
+# maximum windspeed (time_daily_max, default 1pm) can be specified in units of
+# hours (6 is 6am, 13 is 1pm, 24 is midnight, etc.).
+interpolate_daily_windspeed <- function(daily_max, daily_min,
+                                       time_sunrise = 6,
+                                       time_daily_max = 13) {
+
+  # some duplicate (actually, inverted) code here from the humidity function
+  # that could be abstracted into a helper function
+
+  # rename inputs to scheme
+  wind_max_day <- daily_max
+  wind_min_day <- daily_min
+
+  # set up times for interpolation
+  n_days <- length(wind_max_day)
+  times <- rep(seq_len(24), n_days)
+
+  # expand min and diff vectors to hours, for vectorised lookup
+  wind_min_hour <- rep(wind_min_day, each = 24)
+  wind_max_hour <- rep(wind_max_day, each = 24)
+
+  # make an unscaled curve of weights from 1 (time_daily_max) to 0
+  # (time_sunrise), passing through 0.5 at midnight
+  weight <- 1 - vsine_weights(times = times,
+                              time_sunrise = time_sunrise,
+                              time_inflection = time_daily_max)
+
+  # now adjust the definition of max and min across times to ensure smooth
+  # continuity in linear interpolations
+
+  # for each day, if we are before sunrise (minimum) use yesterday's max,
+  # otherwise use today's
+
+  # get yesterday's max
+  wind_max_yesterday_day <- c(wind_max_day[1], wind_max_day[-n_days])
+  wind_max_yesterday_hour <- rep(wind_max_yesterday_day, each = 24)
+
+  # find out if we are before sunrise
+  before_sunrise <- as.numeric(times < time_sunrise)
+
+  # reassign these
+  wind_max_last_hour <- wind_max_hour * (1 - before_sunrise) +
+    wind_max_yesterday_hour * before_sunrise
+
+  # for each day, if we are before time_daily_max (peak) use today's min,
+  # otherwise use tomorrow's min
+
+  # get tomorrow's min
+  wind_min_tomorrow_day <- c(wind_min_day[-1], wind_min_day[n_days])
+  wind_min_tomorrow_hour <- rep(wind_min_tomorrow_day, each = 24)
+
+  # find out if we are before sunrise
+  after_daily_max <- as.numeric(times > time_daily_max)
+
+  # reassign these
+  wind_min_next_hour <- wind_min_hour * (1 - after_daily_max) +
+    wind_min_tomorrow_hour * after_daily_max
+
+  # now scale these according to the weights curve
+  wind_diff_hour <- wind_max_last_hour - wind_min_next_hour
+  wind_hour <- wind_min_next_hour + weight * wind_diff_hour
+
+  # return the windspeed and times
+  data.frame(
+    time = times,
+    windspeed = wind_hour
+  )
+
+}
+
+# # demo
+# n_days <- 6
+# max_wind <- runif(n_days, 3, 5)
+# min_wind <- runif(n_days, 1, 1.5)
+#
+# res <- interpolate_daily_windspeed(
+#   daily_max = max_wind,
+#   daily_min = min_wind
+# )
+#
+# # plot interpolation and maxima/minima
+# plot(res$windspeed,
+#      type = "l")
+# points(max_wind ~ which(res$time == 13),
+#        pch = 16, col = "red")
+# points(min_wind ~ which(res$time == 6),
 #        pch = 16, col = "blue")
