@@ -67,19 +67,19 @@ evaporation_rate_kg_h <- function(temperature_c,
   theta <- (25 + 19 * v)
   A <- surface_area_m2
 
-  # compute the maximum humidity ratio xs, given the saturation vapour pressure p_ws
-  # and atmospheric pressure p_a
+  # compute the maximum humidity ratio xs, given the saturation vapour pressure
+  # p_ws and atmospheric pressure p_a
   # xs = 0.62198 p_ws / (p_a - p_ws)
   p_ws <- saturation_vapour_pressure_kpa(temperature_c)
   p_a <- air_pressure_kpa(altitude_m)
   xs <- 0.62198 * p_ws / (p_a - p_ws)
 
-  # now compute the humidity ratio x for the actual air, from the air pressure and
-  # actual vapour pressure
+  # now compute the humidity ratio x for the actual air, from the air pressure
+  # and actual vapour pressure
 
-  # relative humidity is the ratio of the partial pressure of water vapour in the
-  # air (p), to the saturation vapour pressure (p_s), so use it to convert back to
-  # the partial pressure of water vapour p
+  # relative humidity is the ratio of the partial pressure of water vapour in
+  # the air (p), to the saturation vapour pressure (p_s), so use it to convert
+  # back to the partial pressure of water vapour p
   # RH = 100 * p_w / p_ws
   p_w <- p_ws * (relative_humidity / 100)
   x <- 0.62198 * p_w / (p_a - p_w)

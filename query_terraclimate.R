@@ -312,15 +312,16 @@ tiles <- make_tiles(tc_template, target_n_tiles = 100)
 # points(zoom_points,
 #        pch = 16)
 
-# define all dates to extract per tile
-dates <- seq(as.Date("2020-01-01"),
+# define all dates to extract per tile (earlier ones will be extracted to
+# enable burnin)
+dates <- seq(as.Date("2000-01-01"),
              as.Date("2024-12-31"),
              by = "1 day")
 
 # set up microclimate parameters
 microclimate_params <- list(
-  shade_proportion = 0.95,
-  adult_height = 0.1
+  shade_proportion = 1,
+  adult_height = 1
 )
 
 # variables required for running NicheMapR sims
@@ -333,8 +334,6 @@ tile_data <- terraclimate_extract_tile(tile_number = 1,
   clean_tile_data(tc_template)
 
 
-
-
 # subset this for now for testing
 tile_data_sub <- tile_data |>
   dplyr::filter(
@@ -342,6 +341,8 @@ tile_data_sub <- tile_data |>
     latitude %in% latitude[1:2]
   )
 
+
+system.time(
 # process these variables for input to NicheMapR
 sims <- tile_data_sub |>
 
@@ -415,6 +416,123 @@ sims <- tile_data_sub |>
     ),
     .groups = "drop"
   )
+)
+
+# ~5 mins per pixel runtime
+
+# ncell(tc_template) / 64
+# # 45000 cells per CPU
+# 5 * 45000 / 60
+# 3750 hours
+# 3750/ 24
+#
+# 156 days
+
+# we need a faster alternative to nichemapr:
+
+# hourly interpolation of air temperature, humidity, and windspeed.
+
+# use this to solve for water volume
+
+# use air temperature and humidity to drive adult vector model (shaded ambient
+# conditions)
+
+# work out how to approximate water temperature:
+
+# lose heat from evaporation
+
+# at each timestep, given the mass of water evaporated E (in kg) and the Latent
+# Heat of Vaporization λ (in kJ/kg, for water approximately 2260 kJ/kg at
+# standard pressure) representing the energy to change liquid to gas. Then can
+# calculate Heat Loss Q_{evap} as Q_{evap} = E λ (in kJ).
+
+# gain radiant heat from air (given water and air temperatures): Q_{rad}
+# following Stefan-Boltzmann Law and current temperatures of water and air
+
+# Q_{rad}= sigma epsilon A (T_{water}^{4} - T_{air}^{4})
+# sigma: Stefan-Boltzmann constant (5.67x10^-8 W / m^2 K ^4)
+# epsilon: Emissivity (water is ~0.97-0.99, air gases are complex)
+
+# For a fully shaded pool (no direct solar radiation)
+# get Heat exchange: Q = Q_{rad} - Q_{evap}
+
+# For an unshaded pool (solar radiation, accounting for cloud cover - c)
+# get Heat exchange: Q = Q_{rad} - Q_{solar} - Q_{evap}
+
+# we can model either a shaded (radiation from air) or an unshaded puddle
+# (radiation plus solar gain, from clearsky and terraclimate-derived
+# ccmin/ccmax) https://codes.ecmwf.int/grib/param-db/169, assuming low or no
+# albedo)
+
+# Calculate heat gain from solar radiation Q_{solar}:
+# Incoming solar radiation ISR = clearsky_SRAD (in m^2) * cloud_cover_fraction
+# Absorbed solar radiation ASR = ISR * (1 - albedo) (assume very low albedo for water)
+# Surface area (A)
+# Q_{solar} = ASR × A (in Watts or Joules/second)
+
+# then compute temperature change as:
+#   delta_{T} = Q / (m c)
+# where m (in kg) is current mass of water and c is specific heat capacity of
+# water https://en.wikipedia.org/wiki/Specific_heat_capacity c = 4184 J/kg/K, so
+# convert into kJ and solve for change in temperature
+
+# the just iterate!
+
+
+
+df <- sims$hourly_climate[[1]]
+
+df |>
+  dplyr::filter(
+    date >= as.Date("2024-06-14"),
+    date < as.Date("2024-06-16"),
+  ) |>
+  dplyr::mutate(
+    day = as.numeric(date - min(date)),
+    hour = hour + day * 24
+  ) |>
+  dplyr::select(
+    -date,
+    -day
+  ) |>
+  tidyr::pivot_longer(
+    cols = !any_of("hour"),
+    names_to = "variable",
+    values_to = "value"
+  ) |>
+  ggplot(
+    aes(x = hour,
+        y = value)
+  ) +
+  geom_line() +
+  facet_wrap(
+    ~variable,
+    scales = "free_y"
+  ) +
+  theme_minimal()
+
+
+tile_data_sub |>
+  process_terraclimate_tile_vars() |>
+  dplyr::pull(monthly_climate) |>
+  unlist(recursive = FALSE) |>
+  dplyr::as_tibble() |>
+  dplyr::filter(
+    start == as.Date("2024-06-01")
+  )
+
+# microclimate air temperature is lower, humidity is higher
+
+# what if we skipped the nichemapr stuff?
+
+# spline interpolation of day/night temps, cloud cover, etc.
+
+# see how nichemapr puts the peaks and troughs for hourly data and align
+
+
+
+
+
 
 par(mfrow = c(2, 2))
 tile_data_sub |>
@@ -433,23 +551,12 @@ sims$hourly_climate[[1]] |>
        main = "hourly rainfall")
 sims$water_surface_area[[1]][sims$hourly_climate[[1]]$date > min(dates)] |>
   plot(type = "l",
-       main = "water furface area")
-
-# auto-extend 'dates' earlier, to better initialise model
-
-# # raw rainfall data
-# tile_data_sub |>
-#   dplyr::filter(variable == "ppt") |>
-#   dplyr::mutate(
-#     mid = start + (end - start) / 2,
-#     year = lubridate::year(mid)
-#   ) |>
-#   dplyr::group_by(year) |>
-#   dplyr::summarise(
-#     value = sum(value)
-#   )
-
-# need to copy over and apply the water body simulation
+       main = "water surface area")
+sims$hourly_climate[[1]] |>
+  dplyr::filter(date > min(dates)) |>
+  dplyr::pull(air_temperature) |>
+  plot(type = "l",
+       main = "hourly temperature")
 
 # need to copy over and apply the an gambiae population dynamics
 
@@ -462,13 +569,6 @@ sims$water_surface_area[[1]][sims$hourly_climate[[1]]$date > min(dates)] |>
 
 # group by locations
 
-# convert all the temporal information into a list-column of monthly data (so
-# each row is one location)
-
-# append the altitude for the nichemapr lookup
-
-# append the microhabitat information
-
 # then in the major parallel wrapper, for each row:
 # - take the monthly data tibble and compute a tibble of the daily data (using
 #    spline seasonal)
@@ -480,34 +580,6 @@ sims$water_surface_area[[1]][sims$hourly_climate[[1]]$date > min(dates)] |>
 #    into the population dynamics simulation (to bring over from Anopheles
 #    stephensi work)
 
-
-# when pr
-
-# format it to be make this location-rowwise, add scalar information there, and
-# put the daily data in a separate list column
-
-
-# micro <- create_micro(latitude = latitude,
-#                       longitude = longitude,
-#                       altitude_m = altitude,
-#                       dates = dates,
-#                       daily_temp_max_c = climate_daily$tmax,
-#                       daily_temp_min_c = climate_daily$tmin,
-#                       daily_rh_max_perc = climate_daily$rhmax,
-#                       daily_rh_min_perc = climate_daily$rhmin,
-#                       daily_cloud_max_perc = climate_daily$ccmax,
-#                       daily_cloud_min_perc = climate_daily$ccmin,
-#                       daily_wind_max_ms = climate_daily$wsmax,
-#                       daily_wind_min_ms = climate_daily$wsmin,
-#                       daily_rainfall_mm = climate_daily$rainfall_mm,
-#                       weather_height_m = 2,
-#                       adult_height_m = adult_height,
-#                       even_rain = FALSE,
-#                       shade_prop = shade_proportion)
-
-
-# head(res)
-
 # need wrapper function to do the following for monthly data at each location:
 # 1. spline interpolation of all variables (to daily)
 # 2. microclimate simulation (to hourly)
@@ -516,13 +588,6 @@ sims$water_surface_area[[1]][sims$hourly_climate[[1]]$date > min(dates)] |>
 # 5. summarise population dynamics back to monthly
 
 # then execute this in parallel across all cells in a tile
-
-
-# # convert log rainfall back
-# climate_daily$rainfall_mm <- expm1(climate_daily$log_rainfall_mm)
-
-
-
 
 # To do:
 
@@ -542,11 +607,14 @@ sims$water_surface_area[[1]][sims$hourly_climate[[1]]$date > min(dates)] |>
 
     # run spline interpolation to get daily outdoor data 2000-2025 - DONE
 
-    # run NicheMapR to get hourly microclimate data 2000-2025
+    # run NicheMapR to get hourly microclimate data 2000-2025 - DONE
+
+    # run cone model to get hourly water surface area 2000-2025 - DONE
 
     # run the population dynamic models to get hourly population data 2000-2025
 
-    # summarise the population dynamic outputs to monthly data 2000-2025
+    # summarise the population dynamic and water surface area outputs to monthly
+    # data 2000-2025
 
   # write the monthly summaries for this tile to disk as a CSV file
 
