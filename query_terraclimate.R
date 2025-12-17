@@ -476,7 +476,7 @@ sims <- tile_data_sub |>
 # water https://en.wikipedia.org/wiki/Specific_heat_capacity c = 4184 J/kg/K, so
 # convert into kJ and solve for change in temperature
 
-# the just iterate!
+# then just iterate!
 
 
 
