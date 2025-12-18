@@ -385,18 +385,31 @@ sims <- tile_data_sub |>
     latitude,
     altitude,
   ) |>
+
+  # # nichemapr microclimate version (slooow due to solving ODEs)
+  # dplyr::summarise(
+  #   hourly_climate = list(
+  #     hourly_from_daily_climate_microclimate(
+  #       latitude = latitude,
+  #       longitude = longitude,
+  #       altitude = altitude,
+  #       daily_climate = daily_climate[[1]],
+  #       microclimate = microclimate_params
+  #     )
+  #   ),
+  #   .groups = "drop"
+  # ) |>
+
+  # ambient climate version (much faster)
   dplyr::summarise(
     hourly_climate = list(
-      hourly_from_daily_climate(
-        latitude = latitude,
-        longitude = longitude,
-        altitude = altitude,
-        daily_climate = daily_climate[[1]],
-        microclimate = microclimate_params
+      hourly_from_daily_climate_ambient(
+        daily_climate = daily_climate[[1]]
       )
     ),
     .groups = "drop"
   ) |>
+
   dplyr::group_by(
     longitude,
     latitude,
@@ -418,15 +431,40 @@ sims <- tile_data_sub |>
   )
 )
 
-# ~5 mins per pixel runtime
 
-# ncell(tc_template) / 64
-# # 45000 cells per CPU
-# 5 * 45000 / 60
-# 3750 hours
-# 3750/ 24
-#
-# 156 days
+cpus <- 64
+pixels_per_cpu <- ncell(tc_template) %/% 64
+
+# 250s per pixel runtime for nichemapr
+seconds_per_pixel <- 260
+hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
+hours / 24
+# 135 days on a 64 core machine for nichemapr
+
+# 2.4s mins per pixel runtime for ambient:
+seconds_per_pixel <- 2.39
+hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
+hours
+# 30 hours on a 64 core machine for ambient
+
+
+# profile this code in ambient mode and try to speed up spline interpolation,
+# assuming that's the slow part.
+
+# predict.gam in spline_seasonal takes a bit of time
+
+# this is fitting to the entire trend, to then only extrapolate to the half
+# month at the beginning and at the end
+
+# at least only predict to the extrapolated points
+
+
+# see how many points need extrpolation, and see if we can just use linear
+# interpolation (terraclimate is doing the other interpolation for us)
+
+# break apart spline_seasonal into splining, linear interpolation, and hybrid
+
+
 
 # we need a faster alternative to nichemapr:
 
