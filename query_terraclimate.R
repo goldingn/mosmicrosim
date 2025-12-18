@@ -342,6 +342,7 @@ tile_data_sub <- tile_data |>
   )
 
 
+# profvis::profvis(
 system.time(
 # process these variables for input to NicheMapR
 sims <- tile_data_sub |>
@@ -442,38 +443,29 @@ hours / 24
 # 135 days on a 64 core machine for nichemapr
 
 # 2.4s mins per pixel runtime for ambient:
-seconds_per_pixel <- 2.39
+seconds_per_pixel <- 0.93
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours
-# 30 hours on a 64 core machine for ambient
+# 11 hours on a 64 core machine for ambient
 
 
-# profile this code in ambient mode and try to speed up spline interpolation,
-# assuming that's the slow part.
+# look into modelling water temperature at the same time as water volume
 
-# predict.gam in spline_seasonal takes a bit of time
+# simple model: fully-shaded waterbody (no solar gain):
+# - energy loss due to evaporation (transformation of already calculated value)
+# - energy gain due to thermal radiation from the air (4th power of current temps,
+# and a constant)
 
-# this is fitting to the entire trend, to then only extrapolate to the half
-# month at the beginning and at the end
+# more complex model: partly shaded waterbody (some solar gain):
+# - energy loss due to evaporation (transformation of already calculated value)
+# - energy gain due to thermal radiation from the air (4th power of current temps,
+#   and a constant)
+# - energy gain due to solar radiation, accounting for time of day, cloud cover,
+#   and vegetation shading parameter
 
-# at least only predict to the extrapolated points
+# - convert energy flux to temperature change at each iteration and update water
+#   temperature
 
-
-# see how many points need extrpolation, and see if we can just use linear
-# interpolation (terraclimate is doing the other interpolation for us)
-
-# break apart spline_seasonal into splining, linear interpolation, and hybrid
-
-
-
-# we need a faster alternative to nichemapr:
-
-# hourly interpolation of air temperature, humidity, and windspeed.
-
-# use this to solve for water volume
-
-# use air temperature and humidity to drive adult vector model (shaded ambient
-# conditions)
 
 # work out how to approximate water temperature:
 
@@ -503,7 +495,14 @@ hours
 # albedo)
 
 # Calculate heat gain from solar radiation Q_{solar}:
-# Incoming solar radiation ISR = clearsky_SRAD (in m^2) * cloud_cover_fraction
+# Incoming solar radiation ISR = clearsky_SRAD (in m^2) adjusted for cloud cover
+
+# NicheMapR:
+# Adjustments for cloud cover are made according to the Angstrom formula
+# (formula 5.33 on P. 177 of Linacre 1992)
+# Q_{solar,cld} = Q_{solar} (0.36+0.64((1−p_{cld}) / 100) where p_{cld} is
+# the percentage cloud cover.
+
 # Absorbed solar radiation ASR = ISR * (1 - albedo) (assume very low albedo for water)
 # Surface area (A)
 # Q_{solar} = ASR × A (in Watts or Joules/second)
