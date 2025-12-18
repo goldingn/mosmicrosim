@@ -53,11 +53,11 @@ daily_from_monthly_climate <- function(monthly_climate) {
 # location, the location's altitude, and some microclimate parameters, run
 # NicheMapR's microclimate model to model hourly microclimate conditions at that
 # location
-hourly_from_daily_climate <- function(latitude,
-                                            longitude,
-                                            altitude,
-                                            daily_climate,
-                                            microclimate) {
+hourly_from_daily_climate_microclimate <- function(latitude,
+                                                   longitude,
+                                                   altitude,
+                                                   daily_climate,
+                                                   microclimate) {
 
   micro <- create_micro(
     latitude = latitude,
@@ -104,6 +104,58 @@ hourly_from_daily_climate <- function(latitude,
 
 }
 
+
+# given a tibble of (spline-interpolated) daily climate data for a given
+# location, run hourly interpolation of these values to model hourly ambient
+# conditions at that location
+hourly_from_daily_climate_ambient <- function(daily_climate) {
+
+  # get hourly rainfall (assume even, so just daily divided by 24)
+    # get hourly rainfall (assume even, so just daily divided by 24)
+  hourly_rainfall <- daily_climate |>
+    dplyr::mutate(
+      rainfall = rainfall_daily / 24
+    ) |>
+    dplyr::select(
+      date,
+      rainfall
+    )
+
+  hourly_climate <- daily_climate |>
+    dplyr::reframe(
+      date = rep(date, each = 24),
+      hour = rep(1:24, nrow(daily_climate)),
+      air_temperature = interpolate_daily_air_temp(
+        daily_max = tmax,
+        daily_min = tmin
+      )$air_temperature,
+      humidity = interpolate_daily_humidity(
+        daily_max = rhmax,
+        daily_min = rhmin
+      )$humidity,
+      cloudcover = interpolate_daily_cloudcover(
+        daily_max = ccmax,
+        daily_min = ccmin
+      )$cloudcover,
+      windspeed = interpolate_daily_windspeed(
+        daily_max = wsmax,
+        daily_min = wsmin
+      )$windspeed,
+      # assume that water temperature tracks air temperature - assumes such a
+      # small water body that there is no thermal buffering and minimal
+      # temperature reduction from evaporation, that water is fully shaded so no
+      # solar gain
+      water_temperature = air_temperature
+    ) |>
+    # append hourly for each day rainfall
+    dplyr::left_join(
+      hourly_rainfall,
+      by = "date"
+    )
+
+  hourly_climate
+
+}
 
 
 # Hourly interpolation of air temperatures from vector on daily maxima
@@ -212,7 +264,7 @@ interpolate_daily_air_temp <- function(daily_max, daily_min,
   # return the temperature and times
   data.frame(
     time = times / 100,
-    temperature = temp_hour
+    air_temperature = temp_hour
   )
 
 }
@@ -228,7 +280,7 @@ interpolate_daily_air_temp <- function(daily_max, daily_min,
 # )
 #
 # # plot interpolation and maxima/minima
-# plot(res$temperature,
+# plot(res$air_temperature,
 #      type = "l")
 # points(max_temps ~ which(res$time == 13),
 #        pch = 16, col = "red")
