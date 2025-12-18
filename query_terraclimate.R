@@ -449,6 +449,14 @@ hours
 # 11 hours on a 64 core machine for ambient
 
 
+# add on the vector population dynamics simulation
+
+# consider vectorising the solutions to water volume and population dynamics
+# across pixels in a tile, for a speed-up
+
+
+
+
 # look into modelling water temperature at the same time as water volume
 
 # simple model: fully-shaded waterbody (no solar gain):
@@ -502,6 +510,69 @@ hours
 # (formula 5.33 on P. 177 of Linacre 1992)
 # Q_{solar,cld} = Q_{solar} (0.36+0.64((1−p_{cld}) / 100) where p_{cld} is
 # the percentage cloud cover.
+
+# need to vary ISR over hours of the day, as per 'extra-terrestrial radiation'
+# section of the NicheMapR equations section
+# https://mrke.github.io/NicheMapR/inst/doc/microclimate-model-theory-equations
+# ie.:
+
+# Irradiance I is
+# I_{lambda} = S_{lambda} (a/r)^2 cos Z
+
+# where S_{lambda} is given by solar attenuation model a is the length of the
+# long (semi-major) axis of the earth’s elliptical orbit around the sun, r is
+# the distance between the earth and the sun and Z is the angle between the
+# sun’s rays and a line extending perpendicular to the imaginary plane (so no
+# direct radiation is received by this plane if Z > 90 degrees, but see below for
+# twilight conditions).
+
+# the factor (a/r)^2 is approximated in the model as 1 + 2*epsilon*cos(omega* doy)
+# where omega = 2*pi/365 and doy is the day of the year (1-365) and epsilon is the
+# eccentricity of the earth’s orbit (default value of 0.01675) so:
+
+# (a/r)^2 = 1 + 2*epsilon*cos(omega*doy)
+# (a/r)^2 = 1 + 2*0.01675*cos(2*doy*pi/365)
+# (a/r)^2 = 1 + 0.0335 * cos(doy * 0.01721421)
+
+# From the astronomical triangle, the term cos(Z) = cos(phi)*cos(delta*h) +
+# sin(phi) * sin(delta) , where phi is the latitude, delta is the solar
+# declination and h is the solar hour angle. The solar declination (the latitude
+# on earth where the sun is directly overhead on a given day) is delta =
+# arcsin(0.39784993*sin(zeta)) where the ecliptic longitude of the earth in its
+# orbit is zeta = omega * (doy − 80) + 2*epsilon *(sin(omega * doy) − sin(omega *
+# 80)), so:
+
+# zeta = omega * (doy − 80) + 2*epsilon *(sin(omega * doy) − sin(omega * 80))
+# zeta = 2*pi/365 * (doy−80) + 2*0.01675*(sin(doy*2*pi/365)−sin(80*2*pi/365))
+# zeta = 0.01721421 * (doy−80) + 0.0335*(sin(doy*0.01721421)−sin(1.377137))
+# zeta = 0.01721421 * (doy−80) + 0.0335*(sin(doy*0.01721421)−0.9813066)
+
+# so:
+
+# delta = arcsin(0.39784993*sin(zeta))
+# delta = arcsin(0.39784993*sin(0.01721421 * (doy−80) + 0.0335*(sin(doy*0.01721421)−0.9813066)))
+
+# The solar hour angle (the angular distance of the sun relative to the zenith
+# crossing; the right ascension for an observer at a particular location and
+# time of day) is h = 15(t_{d} - t_{sn}) degrees, with t_{d} the local standard
+# time of day and t_{sn} the local standard time of true solar noon (we can set
+# this to 12pm), so:
+
+# h = 15(t_{d} - 12)
+# where t_{d} is time of day in hours
+
+# cos(Z) = cos(phi)*cos(delta*h) + sin(phi) * sin(delta)
+# Z = acos(cos(latitude) * cos(delta*15(t_{d} - 12)) + sin(latitude) * sin(delta))
+
+# Z is a function of latitude, hour of day, and day of year
+
+# we also need the daylight hours, given by the hour of sunset H_{+}:
+
+# H_{+} = acos(−tan(delta) * tan(phi))
+# H_{+} = acos(−tan(delta) * tan(latitude))
+
+# and the hour angle at sunset H_{+} = -H_{+}
+
 
 # Absorbed solar radiation ASR = ISR * (1 - albedo) (assume very low albedo for water)
 # Surface area (A)
