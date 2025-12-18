@@ -269,9 +269,6 @@ altitude_blur <- terra::focal(altitude,
 altitude_blur[!is.na(altitude)] <- altitude
 altitude <- terra::mask(altitude_blur, tc_template)
 
-# why does the point fall outside the terraclimate template?
-
-
 # now batch-process this by defining tiles covering the continent,
 # and extracting whole slices for those tiles for the required times
 
@@ -442,13 +439,17 @@ hours / 24
 # 135 days on a 64 core machine for nichemapr
 
 # 2.4s mins per pixel runtime for ambient:
-seconds_per_pixel <- 0.93
+seconds_per_pixel <- 1
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours
-# 11 hours on a 64 core machine for ambient
+# 12.5 hours on a 64 core machine for ambient
 
 
 # add on the vector population dynamics simulation
+
+# need to re-run estimate_lifehistory_parameters.R to package up the lifehistory
+# parameters as per-species lists: lifhistory_functions$An_gambiae$das_function,
+# etc. then we can call the relevant one when running the population dynamics
 
 # consider vectorising the solutions to water volume and population dynamics
 # across pixels in a tile, for a speed-up
