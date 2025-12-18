@@ -69,58 +69,6 @@ iterate_state <- function(state,
   mat %*% state
 }
 
-# access a list of the lifehistory functions needed for the named species
-get_lifehistory_functions <- function(
-    species = c("An. stephensi", "An. gambiae"),
-    storage_path = "data/life_history_params/dehydrated") {
-
-  # enforce the species label
-  species <- match.arg(species)
-
-  # load the daily adult survival for either An. gambiae or An. stephensi
-  ds_temp_humid = rehydrate_lifehistory_function(
-    file.path(storage_path, "ds_temp_humid.RDS")
-  )
-
-  # subset to this species
-  ds_function <- function(temperature, humidity) {
-    ds_temp_humid(temperature, humidity, species = species)
-  }
-
-  # for the others, load the relevant RDS object
-  species_suffix <- switch(species,
-                           "An. stephensi" = "As",
-                           "An. gambiae" = "Ag")
-
-  # development rate of aquatic stages as a function of water temperature
-  mdr_function = rehydrate_lifehistory_function(
-    file.path(storage_path,
-              sprintf("mdr_temp_%s.RDS", species_suffix))
-  )
-
-  # daily survival probability of aquatic stages as a function of water
-  # temperature and density of aquatic stages
-  das_function = rehydrate_lifehistory_function(
-    file.path(storage_path,
-              sprintf("das_temp_dens_%s.RDS", species_suffix))
-  )
-
-  # daily egg laying as a function of air temperature
-  efd_function = rehydrate_lifehistory_function(
-    file.path(storage_path,
-              sprintf("efd_temp_%s.RDS", species_suffix))
-  )
-
-  # return as a named list of functions
-  list(
-    ds_function = ds_function,
-    mdr_function = mdr_function,
-    das_function = das_function,
-    efd_function = efd_function
-  )
-
-}
-
 # simulate for a full timeseries, with optional multiple years of burnin
 simulate_population <- function(
     conditions,

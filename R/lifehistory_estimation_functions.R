@@ -235,6 +235,11 @@ ensure_positive <- function(x) {
 # non-negative (as spline can induce negatives)
 positive_spline <- function(pred, temps_out) {
 
+  # duplicate this here due to weird lexical scoping issues
+  ensure_positive <- function(x) {
+    x * as.numeric(x > 0)
+  }
+
   function_raw <- splinefun(temps_out, pred)
   function_positive <- function(temperature) {
     ensure_positive(function_raw(temperature))
@@ -449,7 +454,7 @@ make_pea_temp <- function(das_temp, mdr_temp) {
 # https://doi.org/10.1002/eap.2334
 load_stephensi_survival_data <- function(){
 
-  read_csv("data/life_history_params/evans/data/clean/CSVs/survival.csv",
+  read_csv("data-raw/life_history_params/evans/data/clean/CSVs/survival.csv",
            show_col_types = FALSE) %>%
     filter(
       Species == "Stephensi",
@@ -482,7 +487,7 @@ load_stephensi_survival_data <- function(){
 load_villena_data <- function() {
 
   # https://github.com/oswaldov/Malaria_Temperature/blob/main/data/traits.csv
-  read.csv("data/life_history_params/oswaldov-Malaria_Temperature-16c9d29/data/traits.csv",
+  read.csv("data-raw/life_history_params/oswaldov-Malaria_Temperature-16c9d29/data/traits.csv",
            header = TRUE,
            row.names = 1) %>%
     # I can't find a study with this name and year that does aquatic stage
@@ -659,7 +664,7 @@ dehydrate_lifehistory_function <- function(fun, path_to_object) {
 # from Bayoh's thesis
 load_bayoh_data <- function() {
   read_csv(
-    "data/life_history_params/adult_survival/bayoh/bayoh_an_gambiae_adult_survival.csv",
+    "data-raw/life_history_params/adult_survival/bayoh/bayoh_an_gambiae_adult_survival.csv",
     col_types = cols(
       temperature = col_double(),
       humidity = col_double(),
@@ -683,7 +688,7 @@ load_bayoh_data <- function() {
 # temperature and humidity combinations, when attempting to induce aestivation,
 # and when not.
 load_krajacich_data <- function() {
-  krajacich <- read_csv("data/life_history_params/adult_survival/krajacich/aestivation.manu.files.scripts/22-Jan-18-R.formatted.masterlist.csv",
+  krajacich <- read_csv("data-raw/life_history_params/adult_survival/krajacich/aestivation.manu.files.scripts/22-Jan-18-R.formatted.masterlist.csv",
                         col_types = cols(
                           Experiment = col_character(),
                           Primed.as = col_character(),
@@ -799,7 +804,7 @@ load_krajacich_data <- function() {
 # Miazgowicz et al. 2020 https://doi.org/10.1098/rspb.2020.1093, from Data
 # dryad: https://doi.org/10.5061/dryad.8cz8w9gmd and prepare for modelling
 load_miazgowicz_data <- function() {
-  miazgowicz <- read_csv("data/life_history_params/adult_survival/miazgowicz/constant_master.csv",
+  miazgowicz <- read_csv("data-raw/life_history_params/adult_survival/miazgowicz/constant_master.csv",
                          col_types = cols(
                            Date = col_character(),
                            Time = col_time(format = ""),
@@ -855,7 +860,7 @@ load_miazgowicz_data <- function() {
 # dryad https://doi.org/10.5061/dryad.74839
 load_shapiro_data <- function() {
 
-  shapiro <- read_csv("data/life_history_params/adult_survival/shapiro/temp.surv.csv",
+  shapiro <- read_csv("data-raw/life_history_params/adult_survival/shapiro/temp.surv.csv",
                       col_types = cols(
                         id = col_double(),
                         expt = col_double(),
