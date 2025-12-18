@@ -527,11 +527,11 @@ vsine_interpolate_daily <- function(daily_max, daily_min,
   sunval_tomorrow_hour <- rep(sunval_tomorrow_day, each = 24)
 
   # find out if we are after inflection
-  after_daily_max <- as.numeric(times > time_daily_max)
+  after_inflection <- as.numeric(times > time_inflection)
 
   # reassign these
-  sunval_next_hour <- sunval_hour * (1 - after_daily_max) +
-    sunval_tomorrow_hour * after_daily_max
+  sunval_next_hour <- sunval_hour * (1 - after_inflection) +
+    sunval_tomorrow_hour * after_inflection
 
   # now scale these according to the weights curve
   if (sunrise_value == "min") {

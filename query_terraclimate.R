@@ -258,8 +258,7 @@ altitude <- altitude_nichemapr |>
   terra::disagg(agg) |>
   terra::crop(tc_template) |>
   terra::resample(tc_template,
-                  method = "bilinear",
-                  na.rm = TRUE) |>
+                  method = "bilinear") |>
   terra::mask(tc_template)
 
 # extend out this layer to match

@@ -459,7 +459,7 @@ clean_tile_data <- function(tile_data, tc_template) {
     dplyr::mutate(
       value = terra::extract(
         tc_template,
-        coords,
+        all_coords,
         ID = FALSE
       )[, 1]
     ) |>
