@@ -113,7 +113,9 @@ iterate_cone_volume <- function(water_volume,
   loss <- loss_kg_h / 1000
 
   # lose water, avoiding negative volume
-  water_volume <- ensure_positive(water_volume - loss)
+  water_volume <- max(water_volume - loss, 0)
+  # if running vectorised, use this:
+  #   water_volume <- ensure_positive(water_volume - loss)
 
   # 1000mm per metre, and catchment area is in m2, so convert to m3 (including
   # multiplier on inflow)
@@ -121,7 +123,9 @@ iterate_cone_volume <- function(water_volume,
   gain <- catchment_area * gain_m_h
 
   # gain water, capping maximum volume
-  water_volume <- enforce_max(water_volume + gain, max = max_cone_volume)
+  water_volume <- min(water_volume + gain, max = max_cone_volume)
+  # if running vectorised, use this:
+  #   water_volume <- enforce_max(water_volume + gain, max = max_cone_volume)
 
   water_volume
 
