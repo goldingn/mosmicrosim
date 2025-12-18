@@ -55,10 +55,9 @@ spline_seasonal <- function(values, dates, dates_predict,
                    # overfit as much as possible
                    gamma = 0.1)
 
-    values_pred_spline <- as.numeric(predict(m, df_predict))
-
-    # now we need to smooth between the linear interpolation and the spline
-    # interpolation
+    # we need to smooth between the linear interpolation and the spline
+    # interpolation, so work out where the spline interpolation is being used,
+    # and only predict to those elements (gam prediction is costly).
 
     # Compute weights for linear vs spline interpolation, to smooth between
     # these two estimates. Set this so that predictions between two observed
@@ -97,12 +96,16 @@ spline_seasonal <- function(values, dates, dates_predict,
     # combine into one weight
     weight <- forward_weight * backward_weight
 
-    # reweight the values
+    # for linear, set any extrapolations to 0 (instead of NA)
     values_pred_linear <- values_pred
-
-    # set any extrapolations to 0 (instead of NA)
     values_pred_linear[extrapolation] <- 0
 
+    # predict the gam only where the weight on the spline is nonzero
+    values_pred_spline <- values_pred_linear * 0
+    to_insert <- (1 - weight) > 0
+    values_pred_spline[to_insert] <- as.numeric(predict(m, df_predict[to_insert, ]))
+
+    # combine the two methods to get the new values
     values_pred <- values_pred_linear * weight +
       values_pred_spline * (1 - weight)
 

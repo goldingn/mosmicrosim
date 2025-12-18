@@ -24,7 +24,7 @@ cone_volume_to_depth <- function(volume) {
 cone_volume_to_surface <- function(volume) {
   # depth <- cone_volume_to_depth(volume)
   # pi * cone_depth_to_radius(depth) ^ 2
-  # with the right angle asusmption, we have sin(pi / 2) = 1, which cancels
+  # with the right angle assumption, we have sin(pi / 2) = 1, which cancels
   # leaving this (which is a bit faster to evaluate in the larval habitat model)
   # pi * (3 / pi) ^ (2/3) * volume ^ (2/3)
   3.046474 * volume ^ 0.666667
