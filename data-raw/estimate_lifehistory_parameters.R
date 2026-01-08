@@ -543,6 +543,10 @@ ggplot(resid_checks,
   ) +
   facet_grid(~ study)
 
+# these are evenly spread out, not indicating bad fit in any one place (just
+# some surprising single results) and the randomised quantile residual checks
+# looks fine, so I'm not concerned about the fit
+
 
 # This is in a lab; field mortality is much greater. Charlwood (1997) estimates
 # daily adult survival for An gambiae at around 0.83 in Ifakara with temperature
@@ -813,17 +817,22 @@ load("R/sysdata.rda",envir = e)
 
 # add the lifehistory functions to the environment
 e$lifehistory_functions <- list(
-  mdr_temp_As = mdr_temp_As,
-  mdr_temp_Ag = mdr_temp_Ag,
-  efd_temp_As = efd_temp_As,
-  efd_temp_Ag = efd_temp_Ag,
-  das_temp_As = das_temp_As,
-  das_temp_Ag = das_temp_Ag,
-  pea_temp_As = pea_temp_As,
-  pea_temp_Ag = pea_temp_Ag,
-  das_temp_dens_As = das_temp_dens_As,
-  das_temp_dens_Ag = das_temp_dens_Ag,
-  ds_temp_humid = ds_temp_humid
+  An_gambiae = list(
+    mdr_temp = mdr_temp_Ag,
+    efd_temp = efd_temp_Ag,
+    das_temp = das_temp_Ag,
+    pea_temp = pea_temp_Ag,
+    das_temp_dens = das_temp_dens_Ag,
+    ds_temp_humid = ds_temp_humid_Ag
+  ),
+  An_stephensi = list(
+    mdr_temp = mdr_temp_As,
+    efd_temp = efd_temp_As,
+    das_temp = das_temp_As,
+    pea_temp = pea_temp_As,
+    das_temp_dens = das_temp_dens_As,
+    ds_temp_humid = ds_temp_humid_As
+  )
 )
 
 # save this again
