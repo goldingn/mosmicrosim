@@ -283,7 +283,7 @@ tiles <- make_tiles(tc_template, target_n_tiles = 100)
 # plot(tc_template,
 #      box = FALSE,
 #      axes = FALSE)
-# for(i in seq_len(n_tiles)) {
+# for(i in seq_len(nrow(tiles))) {
 #   plot(ext(tiles[i, ]),
 #        add = TRUE)
 # }
@@ -299,7 +299,7 @@ tiles <- make_tiles(tc_template, target_n_tiles = 100)
 #      ext = zoom,
 #      box = FALSE,
 #      axes = FALSE)
-# for(i in seq_len(n_tiles)) {
+# for(i in seq_len(nrow(tiles))) {
 #   plot(ext(tiles[i, ]),
 #        add = TRUE)
 # }
@@ -322,24 +322,34 @@ microclimate_params <- list(
 
 # variables required for running NicheMapR sims
 
-# extract all terraclimate data for this tile
-tile_data <- terraclimate_extract_tile(tile_number = 1,
-                                       tiles = tiles,
-                                       dates = dates) |>
-  # subset to only those cells inside the template raster
-  clean_tile_data(tc_template)
+download_time <- system.time(
+  # extract all terraclimate data for this tile
+  tile_data <- terraclimate_extract_tile(tile_number = 1,
+                                         tiles = tiles,
+                                         dates = dates) |>
+    # subset to only those cells inside the template raster
+    clean_tile_data(tc_template)
+)
 
 
-# subset this for now for testing
+# maybe subset this for now for testing
 tile_data_sub <- tile_data |>
-  dplyr::filter(
-    longitude %in% longitude[1:2],
-    latitude %in% latitude[1:2]
-  )
+  dplyr::group_by(
+    variable, start, end,
+  ) |>
+  dplyr::slice_head(
+    n = 3
+  ) |>
+  dplyr::ungroup()
 
+# # subset to one pixel for timings!
+# tile_data_sub <- tile_data |>
+#   dplyr::filter(
+#     latitude == latitude[1] & longitude == longitude[1]
+#   )
 
 # profvis::profvis(
-system.time(
+process_time <- system.time(
 # process these variables for input to NicheMapR
 sims <- tile_data_sub |>
 
@@ -428,21 +438,37 @@ sims <- tile_data_sub |>
   )
 )
 
+# download time ~65s for a small tile (tile 1, ~2.4 square degrees) and ~268s
+# for the largest possible tile (e.g. tile 5, ~25.6 square degrees)
+download_time["elapsed"]
+
+# compute upper bound on time to download tile data
+nrow(tiles) * 268  / 3600
+# 10.2h!
+
+# processing time for this subset
+process_time["elapsed"]
+
+# number of pixels in this subset
+n_pixels <- dplyr::n_distinct(
+  tile_data_sub$latitude,
+  tile_data_sub$longitude
+)
 
 cpus <- 64
 pixels_per_cpu <- ncell(tc_template) %/% 64
 
-# 250s per pixel runtime for nichemapr
+# 260s per pixel runtime for nichemapr
 seconds_per_pixel <- 260
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours / 24
-# 135 days on a 64 core machine for nichemapr
+# 135 *days* on a 64 core machine for nichemapr
 
-# 2.4s mins per pixel runtime for ambient:
-seconds_per_pixel <- 1
+# 1.23s for a single pixel for ambient:
+seconds_per_pixel <- process_time["elapsed"] / n_pixels
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours
-# 12.5 hours on a 64 core machine for ambient
+# 14-6 hours processing time on a 64 core machine for ambient
 
 
 # add on the vector population dynamics simulation
@@ -451,10 +477,16 @@ hours
 # parameters as per-species lists: lifhistory_functions$An_gambiae$das_function,
 # etc. then we can call the relevant one when running the population dynamics
 
+
 # consider vectorising the solutions to water volume and population dynamics
 # across pixels in a tile, for a speed-up
 
+# running without population simulation, simulate_ephemeral_habitat takes ~half the
+# execution time (with 10 or 100 pixels), so this would likely help
 
+# Interestingly, indexing vectors of environmental conditions seems to take the
+# most time. Is there a more efficient way of doing this? Will be faster to
+# index a time slice across multiple pixels, anyway
 
 
 # look into modelling water temperature at the same time as water volume
