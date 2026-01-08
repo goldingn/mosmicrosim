@@ -12,234 +12,6 @@ library(NicheMapR)
 library(terra)
 library(ggplot2)
 
-# demo: pointwise analysis
-
-# # Get weather for central Perth WA for 2020-24
-# longitude <- 115.86
-# latitude <- -31.95
-# dates <- seq(as.Date("2020-01-01"),
-#              as.Date("2024-12-31"),
-#              by = "1 day")
-#
-# # build the indexing slice at this location
-# slice <- terraclimate_build_slice_point(longitude = longitude,
-#                                         latitude = latitude,
-#                                         dates = dates)
-#
-# # get all variables
-# vars <- c("tmax", "tmin",  # temperature
-#           "ppt",  # precipitation
-#           "ws",  # wind speed
-#           "vpd",  # vapor pressure deficit (for rel humidity)
-#           "srad")  # solar radiation
-#
-# climate_monthly <- data.frame(
-#   start_date = slice$dates$start,
-#   end_date = slice$dates$end,
-#   mid_date = slice$dates$start + (slice$dates$end - slice$dates$start) / 2)
-#
-# for(var in vars) {
-#   climate_monthly[, var] <- terraclimate_fetch(slice, var)
-# }
-#
-# # compute relative humidity
-#
-# # mean temperature and vapour pressure
-# climate_monthly$tmean <- (climate_monthly$tmax + climate_monthly$tmin) / 2
-# climate_monthly$vp <- vapour_pressure(climate_monthly$tmean, climate_monthly$vpd)
-#
-# # RH at max/min temps
-# climate_monthly$rhmax <- relative_humidity(climate_monthly$tmin, climate_monthly$vp)
-# climate_monthly$rhmin <- relative_humidity(climate_monthly$tmax, climate_monthly$vp)
-#
-# # adjust wind speed to from measured height (10m) to match the other inputs (2m)
-# # and split by max/min
-# climate_monthly$wsmax <- adjust_wind_speed(climate_monthly$ws,
-#                                            height_required = 2,
-#                                            height_measured = 10)
-# climate_monthly$wsmin <- climate_monthly$wsmax * 0.1
-#
-# # compute cloud cover from solar radiation (terraclimate) and expected clear sky
-# # radiation (microclimate code using coordinates and aerosol data) and manual
-# # multipliers to enforce daily variation, as used in NicheMapR
-#
-# # monthly summaries of clear sky radiation (doesn't depend on weather)
-# clearsky_radiation_monthly <- clear_sky_radiation_12mo(latitude = latitude,
-#                                                        longitude = longitude)
-# monthly_index <- lubridate::month(climate_monthly$mid_date)
-#
-# # convert to cloud cover percentage
-# climate_monthly$ccmax <- cloud_cover(climate_monthly$srad,
-#                                      clearsky_radiation_monthly[monthly_index],
-#                                      multiplier = 1.2)
-# climate_monthly$ccmin <- cloud_cover(climate_monthly$srad,
-#                                      clearsky_radiation_monthly[monthly_index],
-#                                      multiplier = 0.8)
-#
-# # convert precipitation to log scale to spline
-# climate_monthly$rainfall_mm <- climate_monthly$ppt
-# climate_monthly$log_rainfall_mm <- log1p(climate_monthly$rainfall_mm)
-#
-# # # compare with the Hulmes interpolated cloud cover raster at this site
-# # cloud_cover_data <- get_cloud_cover_raster()
-# # cloud_cover_hulmes <- terra::extract(cloud_cover_data,
-# #                                      data.frame(longitude, latitude))
-# # srad_sry <- tapply(climate_monthly$srad, monthly_index, FUN = mean)
-# #
-# # # our calculation from solar radiation is too high
-# #
-# # par(mfrow = c(1, 2))
-# #
-# # # from Hulmes:
-# # plot(t(cloud_cover_hulmes[, -1]), ylim = c(0, 100))
-# #
-# # # from our calculation:
-# # plot(cloud_cover(srad_sry, clearsky_radiation_monthly, multiplier = 1),
-# #      ylim = c(0, 100))
-#
-# # spline these to the requested dates
-# climate_daily <- data.frame(
-#   date = dates
-# )
-# new_var <- c("tmax", "tmin",
-#              "rhmax", "rhmin",
-#              "wsmin", "wsmax",
-#              "ccmax", "ccmin",
-#              "log_rainfall_mm")
-# for (var in new_var) {
-#   climate_daily[, var] <- spline_seasonal(values = climate_monthly[, var],
-#                                           dates = climate_monthly[, "mid_date"],
-#                                           dates_predict = climate_daily[, "date"])
-# }
-#
-# # convert log rainfall back
-# climate_daily$rainfall_mm <- expm1(climate_daily$log_rainfall_mm)
-#
-# # it would be nice if we could use the correct likelihood for disaggregation
-# # in these spline models, but this is cheap and probably not much different
-#
-# var_plot <- c("tmax", "tmin",
-#               "rhmax", "rhmin",
-#               "wsmin", "wsmax",
-#               "ccmax", "ccmin",
-#               "rainfall_mm")
-# par(mfrow = c(1, 1))
-# op <- par(mfrow = n2mfrow(length(var_plot)),
-#           mar = c(3, 3, 2, 1))
-# for (var in var_plot) {
-#   ylims <- range(c(climate_daily[, var], climate_monthly[, var]))
-#   xlims <- range(c(climate_daily$date, climate_monthly$mid_date))
-#   plot(climate_daily[, var] ~ climate_daily$date,
-#        type = "l",
-#        col = grey(0.4),
-#        lwd = 2,
-#        ylab = "",
-#        xlab = "",
-#        main = var,
-#        pch = 16,
-#        ylim = ylims,
-#        xlim = xlims)
-#
-#   points(climate_monthly[, var] ~ climate_monthly$mid_date,
-#          lwd = 1.5,
-#          cex = 0.7)
-# }
-# par(op)
-#
-# altitude <- altitude_m(longitude = longitude, latitude = latitude)
-#
-#
-# # plug these into the microclimate simulation:
-#
-# shade_proportion <- 0.95
-# adult_height <- 0.1
-#
-# micro <- create_micro(latitude = latitude,
-#                       longitude = longitude,
-#                       altitude_m = altitude,
-#                       dates = dates,
-#                       daily_temp_max_c = climate_daily$tmax,
-#                       daily_temp_min_c = climate_daily$tmin,
-#                       daily_rh_max_perc = climate_daily$rhmax,
-#                       daily_rh_min_perc = climate_daily$rhmin,
-#                       daily_cloud_max_perc = climate_daily$ccmax,
-#                       daily_cloud_min_perc = climate_daily$ccmin,
-#                       daily_wind_max_ms = climate_daily$wsmax,
-#                       daily_wind_min_ms = climate_daily$wsmin,
-#                       daily_rainfall_mm = climate_daily$rainfall_mm,
-#                       weather_height_m = 2,
-#                       adult_height_m = adult_height,
-#                       even_rain = FALSE,
-#                       shade_prop = shade_proportion)
-#
-# # profvis::profvis(
-# system.time(
-#   sim <- NicheMapR::microclimate(micro)
-# )
-# # )
-#
-# # # it's frustrating that runshade=1 is required, contact Mike with a reprex and
-# # # to to ask why?
-# # micro2 <- micro
-# # micro2$microinput["runshade"] <- 0
-# # system.time(
-# #   sim2 <- NicheMapR::microclimate(micro2)
-# # )
-# # summary(sim2$shadmet[, "TALOC"])
-#
-#
-# # plot some examples of microclimate conditions, with the external conditions
-# # over the top
-#
-# n_days <- 52 * 7
-# days <- 1:n_days
-# hours <- 0 * 24 + 1:(24 * n_days)
-# dates_plot <- dates[days] + lubridate::hours(1)
-# hours_plot <- dates[1] + lubridate::hours(hours)
-#
-# par(mfrow = c(2, 2), mar = c(5, 4, 4, 2) + 0.1)
-#
-# vals <- sim$shadmet[, "TALOC"][hours]
-# plot(vals ~ hours_plot,
-#      type = "l",
-#      ylab = "C",
-#      las = 1,
-#      lwd = 0.1,
-#      ylim = c(0, 40))
-# lines(climate_daily$tmax[days] ~ dates_plot,
-#       lty = 2)
-# lines(climate_daily$tmin[days] ~ dates_plot,
-#       lty = 2)
-# title(main = "Microclimate temperature")
-#
-# vals <- sim$shadmet[, "RHLOC"][hours]
-# plot(vals ~ hours_plot,
-#      type = "l",
-#      ylab = "%",
-#      las = 1,
-#      lwd = 0.1,
-#      ylim = c(0, 100))
-# lines(climate_daily$rhmin[days] ~ dates_plot,
-#       lty = 2)
-# lines(climate_daily$rhmax[days] ~ dates_plot,
-#       lty = 2)
-# title(main = "Relative humidity")
-#
-# vals <- sim$shadmet[, "VLOC"][hours]
-# plot(vals ~ hours_plot,
-#      type = "l",
-#      ylab = "m/s",
-#      las = 1,
-#      lwd = 0.1,
-#      ylim = c(0, 5))
-# lines(climate_daily$wsmax[days] ~ dates_plot,
-#       lty = 2)
-# lines(climate_daily$wsmin[days] ~ dates_plot,
-#       lty = 2)
-# title(main = "Wind speed")
-#
-
-
 # demo: batch process analysis in tiles
 
 # load a template raster for Africa
@@ -310,7 +82,7 @@ tiles <- make_tiles(tc_template, target_n_tiles = 100)
 
 # define all dates to extract per tile (earlier ones will be extracted to
 # enable burnin)
-dates <- seq(as.Date("2000-01-01"),
+dates <- seq(as.Date("2020-01-01"),
              as.Date("2024-12-31"),
              by = "1 day")
 
@@ -338,12 +110,12 @@ tile_data_sub <- tile_data |>
     variable, start, end,
   ) |>
   dplyr::slice_head(
-    n = 2
+    n = 1
   ) |>
   dplyr::ungroup()
 
-# profvis::profvis(
-process_time <- system.time(
+profvis::profvis(
+# process_time <- system.time(
   # process these variables for input to NicheMapR
   sims <- tile_data_sub |>
 
@@ -583,15 +355,20 @@ abline(v = hourly_year_ends, lty = 3)
 
 #   das_function is called repeatedly, but need not be. Compute it once for the
 #   full timeseries, then modify the value dynamically based on the density:
+#     DONE
 
 #     save das_temp (das_temp_Ag and das_temp_As) in the lifehistory parameters
+#     DONE
 
 #     create a new function to *modify* aquatic survival based on density and a
 #     pre-computed survival, and save this in lifehistroy functions too
+#     DONE
 
 #     precompute the temperature-dependent aquatic survival
+#     DONE
 
 #     apply the density modification function inside the dynamics
+#     DONE
 
 #   matrix being called repeatedly is slow (and impractical later when we come
 #   to vectorise), so solve as two-state difference model instead

@@ -13,18 +13,20 @@
 # construct the matrix appropriately, given the larval
 # density in the previous timestep
 create_matrix <- function(state,
-                          das_function,
+                          das_densmod_function,
                           larval_habitat_area,
                           water_temperature,
                           mdr,
                           efd,
+                          das_zerodensity,
                           ds,
                           timestep = 1 / 24) {
 
-  # given the previous state, surface area, and temperature, compute daily
-  # aquatic survival (density- and temperature-dependent)
-  das <- das_function(temperature = water_temperature,
-                      density = state[1] / larval_habitat_area)
+  # given the previous state, surface area, and survival at zero density (ie. as
+  # a function of water temperature), compute daily aquatic survival (density- and
+  # temperature-dependent)
+  das <- das_densmod_function(surv_prob = das_zerodensity,
+                              density = state[1] / larval_habitat_area)
 
   # convert all of these to the required timestep (survivals cumulative, rates
   # linear)
@@ -53,18 +55,20 @@ create_matrix <- function(state,
 # iterate the state of the model
 iterate_state <- function(state,
                           t,
-                          das_function,
+                          das_densmod_function,
                           larval_habitat_area,
                           water_temperature,
                           mdr,
                           efd,
+                          das_zerodensity,
                           ds) {
   mat <- create_matrix(state = state,
-                       das_function,
+                       das_densmod_function = das_densmod_function,
                        larval_habitat_area = larval_habitat_area[t],
                        water_temperature = water_temperature[t],
                        mdr = mdr[t],
                        efd = efd[t],
+                       das_zerodensity = das_zerodensity[t],
                        ds = ds[t])
   mat %*% state
 }
@@ -87,6 +91,11 @@ simulate_population <- function(
     conditions$water_temperature[index])
   efd <- lifehistory_functions$efd_temp(
     conditions$air_temperature[index])
+  # aquatic survival at zero density (based on temperature), so we can just
+  # modify it later withoutnhaving to re-run temperature sruvival relationship
+  # at every iteration
+  das_zerodensity <- lifehistory_functions$das_temp(
+    conditions$water_temperature[index])
   ds <- lifehistory_functions$ds_temp_humid(
     temperature = conditions$air_temperature[index],
     humidity = conditions$humidity[index])
@@ -103,11 +112,12 @@ simulate_population <- function(
   for (t in seq_len(n)) {
     state <- iterate_state(state,
                            t = t,
-                           das_function = lifehistory_functions$das_temp_dens,
+                           das_densmod_function = lifehistory_functions$das_densmod,
                            larval_habitat_area = larval_habitat_area,
                            water_temperature = water_temperature,
                            mdr = mdr,
                            efd = efd,
+                           das_zerodensity = das_zerodensity,
                            ds = ds)
     states[t, ] <- state
   }
