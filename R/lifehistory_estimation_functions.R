@@ -528,6 +528,15 @@ make_surv_densmod_function <- function(dd_effect,
 
   type <- match.arg(type)
 
+  # use faster logit/inverse logit for minor speedups (vs qlogis/plogis)
+  logit <- function(p) {
+    log(p / (1 - p))
+  }
+
+  ilogit <- function(x) {
+    1 / (1 + exp(-x))
+  }
+
   if(type == "cox_ph") {
     # if the parameter for the density-dependent effect on survival is estimated
     # as in a Cox proportional hazards model, use a complementary log-log function
@@ -559,14 +568,14 @@ make_surv_densmod_function <- function(dd_effect,
       # equation
       density_dish <- density * surface_area_cm2
       # get logit of daily survival probability at zero/low density
-      logit_daily_survival_zero_density <- qlogis(surv_prob)
+      logit_daily_survival_zero_density <- logit(surv_prob)
       # add on the density effect linear in log density (per dish used to
       # estimate the parameter)
       logit_daily_survival <- logit_daily_survival_zero_density +
         dd_effect * density_dish
       # convert back to a daily survival probability, including the density
       # effect, and return
-      plogis(logit_daily_survival)
+      ilogit(logit_daily_survival)
     }
   }
 
