@@ -554,8 +554,8 @@ make_surv_temp_dens_function <- function(surv_temp_function,
     }
   } else if (type == "logit") {
     # if the parameter for the density-dependent effect on survival is estimated
-    # as the slope in a logit model of log densities use that to transform ir complementary log-log function
-    # mapping
+    # as the slope in a logit model of log densities use that to transform with
+    # complementary log-log function mapping
     fun <- function(temperature, density) {
       # scale density to the experimental dish size used in estimating the
       # equation
@@ -1001,5 +1001,55 @@ load_muriu_dd_survival_parameters <- function() {
     )
 }
 
-mortality_prob_to_log_hazard <- function(mortality_prob) log(-log(1 - mortality_prob))
+mortality_prob_to_log_hazard <- function(mortality_prob) {
+  log(-log(1 - mortality_prob))
+}
 # log_hazard_to_mortality_prob <- function(log_hazard) 1 - exp(-exp(log_hazard))
+
+# given the adult mortality model, make a function for daily survival (of
+# adults) for the given species, as a function of temperature and humidity,
+# accounting for field hazards (log_hazard_correction). This is defined here to
+# assist in lexical scoping to make all objects and functions visible later when
+# the resulting function is saved in the package
+make_surv_temp_humid_function <- function(adult_mortality_model,
+                                          log_hazard_correction = 0,
+                                          species = c("An. gambiae",
+                                                      "An. stephensi")) {
+  species <- match.arg(species)
+  epsilon <- sqrt(.Machine$double.eps)
+
+  # return a function to make these predictions
+  function(temperature, humidity) {
+
+    df <- data.frame(
+      temperature = pmax(epsilon, temperature),
+      humidity = pmax(epsilon, humidity),
+      time = epsilon,
+      sex = "F",
+      id = 1,
+      species = species,
+      non_preferred = 0,
+      study = ifelse(species == "An. gambiae",
+                     "krajacich",
+                     "miazgowicz"),
+      replicate = 1
+    )
+
+    # get the (log) daily hazard of the Cox survival model, based on temperature
+    # and humidity
+    lab_daily_log_hazard <- predict(adult_mortality_model,
+                                    newdata = df,
+                                    type = "link")
+
+    # add on the constant hazard due to field conditions
+    field_daily_log_hazard <- lab_daily_log_hazard + log_hazard_correction
+
+    # convert to a probability of dying in a single day, under this hazard
+    field_mortality_prob <- 1 - exp(-exp(field_daily_log_hazard))
+
+    # convert to probability of surviving
+    1 - field_mortality_prob
+
+  }
+
+}

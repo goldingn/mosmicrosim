@@ -434,7 +434,30 @@ process_time <- system.time(
       )
     ) |>
 
+    dplyr::ungroup() |>
+
+    # compute and append the mosquito populations to the hourly climate datasets
+    dplyr::group_by(
+      longitude,
+      latitude,
+      altitude,
+    ) |>
+
+    dplyr::mutate(
+      hourly_climate = list(
+        dplyr::tibble(
+          hourly_climate[[1]],
+          An_gambiae_population = simulate_population(
+            conditions = hourly_climate[[1]],
+            lifehistory_functions = mosmicrosim:::lifehistory_functions$An_gambiae,
+            larval_habitat_area = hourly_climate[[1]]$water_surface_area
+          )[, "adult"]
+        )
+      )
+    ) |>
+
     dplyr::ungroup()
+
 )
 
 # download time ~65s for a small tile (tile 1, ~2.4 square degrees) and ~268s
@@ -463,11 +486,12 @@ hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours / 24
 # 135 *days* on a 64 core machine for nichemapr
 
-# 1.23s for a single pixel for ambient:
+# 1.23s for a single pixel for ambient microclimate and water volume, so 14-6
+# hours processing time on a 64 core machine for ambient microclimate only
+
 seconds_per_pixel <- process_time["elapsed"] / n_pixels
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours
-# 14-6 hours processing time on a 64 core machine for ambient
 
 
 # check how the climatic conditions look for one location
@@ -486,7 +510,8 @@ df |>
   ) |>
   dplyr::select(
     -date,
-    -day
+    -day,
+    -An_gambiae_population
   ) |>
   tidyr::pivot_longer(
     cols = !any_of("hour"),
@@ -531,10 +556,26 @@ hourly_sim |>
        main = "water surface area")
 abline(v = hourly_year_ends, lty = 3)
 
+# plot An gambiae population
+par(mfrow = c(3, 1))
+hourly_sim |>
+  dplyr::pull(water_surface_area) |>
+  plot(type = "l",
+       main = "water surface area")
+abline(v = hourly_year_ends, lty = 3)
 
+hourly_sim |>
+  dplyr::pull(air_temperature) |>
+  plot(type = "l",
+       main = "air temperature")
+abline(v = hourly_year_ends, lty = 3)
 
+hourly_sim |>
+  dplyr::pull(An_gambiae_population) |>
+  plot(type = "l",
+       main = "population")
+abline(v = hourly_year_ends, lty = 3)
 
-# add on the vector population dynamics simulation
 
 
 # consider vectorising the solutions to water volume and population dynamics

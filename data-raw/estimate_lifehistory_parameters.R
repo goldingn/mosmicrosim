@@ -568,41 +568,19 @@ lab_daily_log_hazard <- predict(adult_mortality_model, df_ifakara, type = "link"
 field_daily_log_hazard <- mortality_prob_to_log_hazard(1 - 0.83)
 log_hazard_correction <- field_daily_log_hazard - lab_daily_log_hazard
 
-# construct function of temperature and humidity
-ds_temp_humid_raw <- function(temperature, humidity, species, model, log_hazard_correction) {
-  epsilon <- sqrt(.Machine$double.eps)
-  df <- data.frame(
-    temperature = pmax(epsilon, temperature),
-    humidity = pmax(epsilon, humidity),
-    time = epsilon,
-    sex = "F",
-    id = 1,
-    species = species,
-    non_preferred = 0,
-    study = ifelse(species == "An. gambiae",
-                   "krajacich",
-                   "miazgowicz"),
-    replicate = 1
-  )
-  lab_daily_log_hazard <- predict(model, df, type = "link")
-  field_daily_log_hazard <- lab_daily_log_hazard + log_hazard_correction
-  field_mortality_prob <- 1 - exp(-exp(field_daily_log_hazard))
-  1 - field_mortality_prob
-}
+# make a function for daily survival (of adults) as a function of temperature
+# and humidity, accounting for field hazards
+ds_temp_humid_Ag <- make_surv_temp_humid_function(
+  adult_mortality_model = adult_mortality_model,
+  log_hazard_correction = log_hazard_correction,
+  species = "An. gambiae"
+)
 
-ds_temp_humid <- function(temperature, humidity, species) {
-  ds_temp_humid_raw(temperature, humidity, species,
-                    model = adult_mortality_model,
-                    log_hazard_correction = log_hazard_correction)
-}
-
-ds_temp_humid_Ag <- function(temperature, humidity) {
-  ds_temp_humid(temperature, humidity, species = "An. gambiae")
-}
-
-ds_temp_humid_As <- function(temperature, humidity) {
-  ds_temp_humid(temperature, humidity, species = "An. stephensi")
-}
+ds_temp_humid_As <- make_surv_temp_humid_function(
+  adult_mortality_model = adult_mortality_model,
+  log_hazard_correction = log_hazard_correction,
+  species = "An. stephensi"
+)
 
 # plot the survival model
 

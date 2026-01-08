@@ -83,11 +83,11 @@ simulate_population <- function(
 
   # pull out timeseries needed for simulating
   water_temperature <- conditions$water_temperature[index]
-  mdr <- lifehistory_functions$mdr_function(
+  mdr <- lifehistory_functions$mdr_temp(
     conditions$water_temperature[index])
-  efd <- lifehistory_functions$efd_function(
+  efd <- lifehistory_functions$efd_temp(
     conditions$air_temperature[index])
-  ds <- lifehistory_functions$ds_function(
+  ds <- lifehistory_functions$ds_temp_humid(
     temperature = conditions$air_temperature[index],
     humidity = conditions$humidity[index])
   larval_habitat_area <- larval_habitat_area[index]
@@ -103,7 +103,7 @@ simulate_population <- function(
   for (t in seq_len(n)) {
     state <- iterate_state(state,
                            t = t,
-                           das_function = lifehistory_functions$das_function,
+                           das_function = lifehistory_functions$das_temp_dens,
                            larval_habitat_area = larval_habitat_area,
                            water_temperature = water_temperature,
                            mdr = mdr,
