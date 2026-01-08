@@ -78,39 +78,43 @@ iterate_state <- function(state,
 
 # simulate for a full timeseries, with optional multiple years of burnin
 simulate_population <- function(
-    conditions,
+    hourly_conditions,
     lifehistory_functions,
     initial_adult = 100,
     initial_aquatic = 100,
     burnin_years = 1) {
 
   # add whole year of burnin
-  n_times <- length(conditions$water_temperature)
+  n_times <- length(hourly_conditions$water_temperature)
   index <- rep(seq_len(n_times), burnin_years + 1)
 
   # pull out environment-dependent lifehistory parameter timeseries
 
   # mosquito (ie. aquatic) development rate
-  mdr <- lifehistory_functions$mdr_temp(conditions$water_temperature[index])
+  mdr <- lifehistory_functions$mdr_temp(
+    hourly_conditions$water_temperature[index]
+  )
 
   # eggs per female per day
-  efd <- lifehistory_functions$efd_temp(conditions$air_temperature[index])
+  efd <- lifehistory_functions$efd_temp(
+    hourly_conditions$air_temperature[index]
+  )
 
   # daily aquatic survival at zero density (ie. due to water temperature), which
   # we will modify it later by density, to avoid having to re-run
   # temperature-dependent survival calculations at every iteration
   das_zerodensity <- lifehistory_functions$das_temp(
-    conditions$water_temperature[index]
+    hourly_conditions$water_temperature[index]
   )
 
   # daily (adult) survival at this temperature and humidity
   ds <- lifehistory_functions$ds_temp_humid(
-    temperature = conditions$air_temperature[index],
-    humidity = conditions$humidity[index]
+    temperature = hourly_conditions$air_temperature[index],
+    humidity = hourly_conditions$humidity[index]
   )
 
   # relative amount of larval habitat available
-  larval_habitat_area <- conditions$water_surface_area[index]
+  larval_habitat_area <- hourly_conditions$water_surface_area[index]
 
   # simulate the population
   n <- length(index)

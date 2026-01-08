@@ -82,7 +82,7 @@ tiles <- make_tiles(tc_template, target_n_tiles = 100)
 
 # define all dates to extract per tile (earlier ones will be extracted to
 # enable burnin)
-dates <- seq(as.Date("2020-01-01"),
+dates <- seq(as.Date("2000-01-01"),
              as.Date("2024-12-31"),
              by = "1 day")
 
@@ -114,8 +114,8 @@ tile_data_sub <- tile_data |>
   ) |>
   dplyr::ungroup()
 
-# profvis::profvis(
-process_time <- system.time(
+# profvis::profvis(rerun = TRUE, expr = {
+process_time <- system.time(expr = {
   # process these variables for input to NicheMapR
   sims <- tile_data_sub |>
 
@@ -161,7 +161,7 @@ process_time <- system.time(
 
     # # nichemapr microclimate version (slooow due to solving ODEs)
     # dplyr::summarise(
-    #   hourly_climate = list(
+    #   hourly_simulation = list(
     #     hourly_from_daily_climate_microclimate(
     #       latitude = latitude,
     #       longitude = longitude,
@@ -175,7 +175,7 @@ process_time <- system.time(
 
   # ambient climate version (much faster)
   dplyr::summarise(
-    hourly_climate = list(
+    hourly_simulation = list(
       hourly_from_daily_climate_ambient(
         daily_climate = daily_climate[[1]]
       )
@@ -191,11 +191,11 @@ process_time <- system.time(
     ) |>
 
     dplyr::mutate(
-      hourly_climate = list(
+      hourly_simulation = list(
         dplyr::tibble(
-          hourly_climate[[1]],
+          hourly_simulation[[1]],
           water_surface_area = simulate_ephemeral_habitat(
-            hourly_climate = hourly_climate[[1]],
+            hourly_climate = hourly_simulation[[1]],
             altitude = altitude,
             initial_volume = 0,
             burnin_years = 0,
@@ -216,11 +216,11 @@ process_time <- system.time(
     ) |>
 
     dplyr::mutate(
-      hourly_climate = list(
+      hourly_simulation = list(
         dplyr::tibble(
-          hourly_climate[[1]],
+          hourly_simulation[[1]],
           An_gambiae_population = simulate_population(
-            conditions = hourly_climate[[1]],
+            hourly_conditions = hourly_simulation[[1]],
             lifehistory_functions = mosmicrosim:::lifehistory_functions$An_gambiae
           )$adult
         )
@@ -229,7 +229,7 @@ process_time <- system.time(
 
     dplyr::ungroup()
 
-)
+})
 
 # download time ~65s for a small tile (tile 1, ~2.4 square degrees) and ~268s
 # for the largest possible tile (e.g. tile 5, ~25.6 square degrees)
@@ -268,7 +268,7 @@ hours
 # check how the climatic conditions look for one location
 
 # for a few days over a
-df <- sims$hourly_climate[[1]]
+df <- sims$hourly_simulation[[1]]
 
 df |>
   dplyr::filter(
@@ -301,7 +301,7 @@ df |>
   theme_minimal()
 
 # over all years for all target dates (since 2000)
-hourly_sim <- sims$hourly_climate[[1]] |>
+hourly_sim <- sims$hourly_simulation[[1]] |>
   dplyr::filter(date >= min(dates))
 
 # plot a vertical dashed line for Jan 1st
@@ -351,6 +351,7 @@ abline(v = hourly_year_ends, lty = 3)
 # to do:
 
 # optimise population dynamic simulation
+# DONE
 
 #   das_function is called repeatedly, but need not be. Compute it once for the
 #   full timeseries, then modify the value dynamically based on the density:
@@ -374,6 +375,7 @@ abline(v = hourly_year_ends, lty = 3)
 #   DONE
 
 # rename hourly_climate to hourly_simulation
+# DONE
 
 # tidy up processing functions to add water volume (and later water temperature)
 # directly to hourly_simulation
