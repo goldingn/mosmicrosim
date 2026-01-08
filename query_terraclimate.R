@@ -114,8 +114,8 @@ tile_data_sub <- tile_data |>
   ) |>
   dplyr::ungroup()
 
-profvis::profvis(
-# process_time <- system.time(
+# profvis::profvis(
+process_time <- system.time(
   # process these variables for input to NicheMapR
   sims <- tile_data_sub |>
 
@@ -221,9 +221,8 @@ profvis::profvis(
           hourly_climate[[1]],
           An_gambiae_population = simulate_population(
             conditions = hourly_climate[[1]],
-            lifehistory_functions = mosmicrosim:::lifehistory_functions$An_gambiae,
-            larval_habitat_area = hourly_climate[[1]]$water_surface_area
-          )[, "adult"]
+            lifehistory_functions = mosmicrosim:::lifehistory_functions$An_gambiae
+          )$adult
         )
       )
     ) |>
@@ -372,6 +371,7 @@ abline(v = hourly_year_ends, lty = 3)
 
 #   matrix being called repeatedly is slow (and impractical later when we come
 #   to vectorise), so solve as two-state difference model instead
+#   DONE
 
 # rename hourly_climate to hourly_simulation
 

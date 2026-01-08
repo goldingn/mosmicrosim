@@ -55,8 +55,8 @@ data_villena <- load_villena_data()
 # for An. stephensi, and refit PEA in a way that enables daily survival
 # probabilities to be computed
 
-# MDR: mosquito development rate (time to move through aquatic stages from egg
-# to adult) as a function of temperature
+# MDR: mosquito development rate (rate of mosquitoes emerging as adults per day)
+# as a function of temperature
 mdr_temp_As <- fit_mdr_temp(data_villena, species = "An. stephensi")
 mdr_temp_Ag <- fit_mdr_temp(data_villena, species = "An. gambiae")
 
