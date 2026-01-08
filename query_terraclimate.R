@@ -338,74 +338,68 @@ tile_data_sub <- tile_data |>
     variable, start, end,
   ) |>
   dplyr::slice_head(
-    n = 3
+    n = 2
   ) |>
   dplyr::ungroup()
 
-# # subset to one pixel for timings!
-# tile_data_sub <- tile_data |>
-#   dplyr::filter(
-#     latitude == latitude[1] & longitude == longitude[1]
-#   )
-
 # profvis::profvis(
 process_time <- system.time(
-# process these variables for input to NicheMapR
-sims <- tile_data_sub |>
+  # process these variables for input to NicheMapR
+  sims <- tile_data_sub |>
 
-  # convert all terraclimate variables to the required NicheMapR input types,
-  # stored in a per-location tibble in the 'monthly_climate' column
-  process_terraclimate_tile_vars() |>
+    # convert all terraclimate variables to the required NicheMapR input types,
+    # stored in a per-location tibble in the 'monthly_climate' column
+    process_terraclimate_tile_vars() |>
 
-  # append altitude of each site based on the coordinates
-  dplyr::mutate(
-    altitude = altitude_m(
-      longitude = longitude,
-      latitude = latitude,
-      altitude_raster = altitude
-    ),
-    .before = monthly_climate
-  ) |>
+    # append altitude of each site based on the coordinates
+    dplyr::mutate(
+      altitude = altitude_m(
+        longitude = longitude,
+        latitude = latitude,
+        altitude_raster = altitude
+      ),
+      .before = monthly_climate
+    ) |>
 
-  # this sub-monthly modelling section to be replaced with a single wrapper
-  # function taking monthly climate data and converting it into monthly vector
-  # abundance data
+    # this sub-monthly modelling section to be replaced with a single wrapper
+    # function taking monthly climate data and converting it into monthly vector
+    # abundance data
 
-  # interpolate daily climate data from monthly climate data
-  dplyr::group_by(
-    longitude,
-    latitude,
-    altitude
-  ) |>
-  dplyr::summarise(
-    daily_climate = list(
-      daily_from_monthly_climate(
-        monthly_climate = monthly_climate[[1]]
-      )
-    ),
-    .groups = "drop"
-  ) |>
+    # interpolate daily climate data from monthly climate data
+    dplyr::group_by(
+      longitude,
+      latitude,
+      altitude
+    ) |>
+    dplyr::summarise(
+      daily_climate = list(
+        daily_from_monthly_climate(
+          monthly_climate = monthly_climate[[1]]
+        )
+      ),
+      .groups = "drop"
+    ) |>
 
-  # simulate hourly (micro-)climate data from daily climate data
-  dplyr::group_by(
-    longitude,
-    latitude,
-    altitude,
-  ) |>
+    # simulate hourly (micro-)climate data from daily climate data
+    dplyr::group_by(
+      longitude,
+      latitude,
+      altitude,
+    ) |>
 
-  # # nichemapr microclimate version (slooow due to solving ODEs)
-  # dplyr::summarise(
-  #   hourly_climate = list(
-  #     hourly_from_daily_climate_microclimate(
-  #       latitude = latitude,
-  #       longitude = longitude,
-  #       altitude = altitude,
-  #       daily_climate = daily_climate[[1]],
-  #       microclimate = microclimate_params
-  #     )
-  #   ),
-  #   .groups = "drop"
-  # ) |>
+    # # nichemapr microclimate version (slooow due to solving ODEs)
+    # dplyr::summarise(
+    #   hourly_climate = list(
+    #     hourly_from_daily_climate_microclimate(
+    #       latitude = latitude,
+    #       longitude = longitude,
+    #       altitude = altitude,
+    #       daily_climate = daily_climate[[1]],
+    #       microclimate = microclimate_params
+    #     )
+    #   ),
+    #   .groups = "drop"
+    # ) |>
 
   # ambient climate version (much faster)
   dplyr::summarise(
@@ -417,25 +411,30 @@ sims <- tile_data_sub |>
     .groups = "drop"
   ) |>
 
-  dplyr::group_by(
-    longitude,
-    latitude,
-    altitude,
-    hourly_climate
-  ) |>
-  dplyr::summarise(
-    water_surface_area = list(
-      simulate_ephemeral_habitat(
-        hourly_climate = hourly_climate[[1]],
-        altitude = altitude,
-        initial_volume = 0,
-        burnin_years = 0,
-        max_cone_depth = 1,
-        inflow_multiplier = 1
+    # compute and append the water surface area to the hourly climate datasets
+    dplyr::group_by(
+      longitude,
+      latitude,
+      altitude,
+    ) |>
+
+    dplyr::mutate(
+      hourly_climate = list(
+        dplyr::tibble(
+          hourly_climate[[1]],
+          water_surface_area = simulate_ephemeral_habitat(
+            hourly_climate = hourly_climate[[1]],
+            altitude = altitude,
+            initial_volume = 0,
+            burnin_years = 0,
+            max_cone_depth = 1,
+            inflow_multiplier = 1
+          )
+        )
       )
-    ),
-    .groups = "drop"
-  )
+    ) |>
+
+    dplyr::ungroup()
 )
 
 # download time ~65s for a small tile (tile 1, ~2.4 square degrees) and ~268s
@@ -471,11 +470,71 @@ hours
 # 14-6 hours processing time on a 64 core machine for ambient
 
 
-# add on the vector population dynamics simulation
+# check how the climatic conditions look for one location
 
-# need to re-run estimate_lifehistory_parameters.R to package up the lifehistory
-# parameters as per-species lists: lifhistory_functions$An_gambiae$das_function,
-# etc. then we can call the relevant one when running the population dynamics
+# for a few days over a
+df <- sims$hourly_climate[[1]]
+
+df |>
+  dplyr::filter(
+    date >= as.Date("2024-06-01"),
+    date <= as.Date("2024-06-03"),
+  ) |>
+  dplyr::mutate(
+    day = as.numeric(date - min(date)),
+    hour = hour + day * 24
+  ) |>
+  dplyr::select(
+    -date,
+    -day
+  ) |>
+  tidyr::pivot_longer(
+    cols = !any_of("hour"),
+    names_to = "variable",
+    values_to = "value"
+  ) |>
+  ggplot(
+    aes(x = hour,
+        y = value)
+  ) +
+  geom_line() +
+  facet_wrap(
+    ~variable,
+    scales = "free_y"
+  ) +
+  theme_minimal()
+
+# over all years for all target dates (since 2000)
+hourly_sim <- sims$hourly_climate[[1]] |>
+  dplyr::filter(date >= min(dates))
+
+# plot a vertical dashed line for Jan 1st
+hourly_year_ends <- which(
+  lubridate::month(hourly_sim$date) == 1 &
+    lubridate::day(hourly_sim$date) == 1 &
+    hourly_sim$hour == 1
+)
+par(mfrow = c(3, 1))
+hourly_sim |>
+  dplyr::pull(rainfall) |>
+  plot(type = "l",
+       main = "hourly rainfall")
+abline(v = hourly_year_ends, lty = 3)
+hourly_sim |>
+  dplyr::pull(air_temperature) |>
+  plot(type = "l",
+       main = "hourly temperature")
+abline(v = hourly_year_ends, lty = 3)
+hourly_sim |>
+  dplyr::pull(water_surface_area) |>
+  plot(type = "l",
+       main = "water surface area")
+abline(v = hourly_year_ends, lty = 3)
+
+
+
+
+# add on the vector population dynamics simulation
 
 
 # consider vectorising the solutions to water volume and population dynamics
@@ -620,89 +679,7 @@ hours
 
 
 
-df <- sims$hourly_climate[[1]]
 
-df |>
-  dplyr::filter(
-    date >= as.Date("2024-06-14"),
-    date < as.Date("2024-06-16"),
-  ) |>
-  dplyr::mutate(
-    day = as.numeric(date - min(date)),
-    hour = hour + day * 24
-  ) |>
-  dplyr::select(
-    -date,
-    -day
-  ) |>
-  tidyr::pivot_longer(
-    cols = !any_of("hour"),
-    names_to = "variable",
-    values_to = "value"
-  ) |>
-  ggplot(
-    aes(x = hour,
-        y = value)
-  ) +
-  geom_line() +
-  facet_wrap(
-    ~variable,
-    scales = "free_y"
-  ) +
-  theme_minimal()
-
-
-tile_data_sub |>
-  process_terraclimate_tile_vars() |>
-  dplyr::pull(monthly_climate) |>
-  unlist(recursive = FALSE) |>
-  dplyr::as_tibble() |>
-  dplyr::filter(
-    start == as.Date("2024-06-01")
-  )
-
-# microclimate air temperature is lower, humidity is higher
-
-# what if we skipped the nichemapr stuff?
-
-# spline interpolation of day/night temps, cloud cover, etc.
-
-# see how nichemapr puts the peaks and troughs for hourly data and align
-
-
-
-
-
-
-par(mfrow = c(2, 2))
-tile_data_sub |>
-  dplyr::filter(
-    start > min(dates),
-    variable == "ppt"
-  ) |>
-  dplyr::pull(value) |>
-  plot(type = "l",
-       main = "monthly rainfall")
-
-sims$hourly_climate[[1]] |>
-  dplyr::filter(date > min(dates)) |>
-  dplyr::pull(rainfall) |>
-  plot(type = "l",
-       main = "hourly rainfall")
-sims$water_surface_area[[1]][sims$hourly_climate[[1]]$date > min(dates)] |>
-  plot(type = "l",
-       main = "water surface area")
-sims$hourly_climate[[1]] |>
-  dplyr::filter(date > min(dates)) |>
-  dplyr::pull(air_temperature) |>
-  plot(type = "l",
-       main = "hourly temperature")
-
-# need to copy over and apply the an gambiae population dynamics
-
-# wrapper function:
-
-# # need to add microclimate information (like in An stephensi version)
 
 
 # input: tile_data_for_nichemapr
@@ -741,22 +718,22 @@ sims$hourly_climate[[1]] |>
 
 # download all terraclimate data for the tile 2000-2025 - DONE
 
-  # For each pixel in the tile:
+# For each pixel in the tile:
 
-    # format terraclimate to get NicheMapR inputs - DONE
+# format terraclimate to get NicheMapR inputs - DONE
 
-    # run spline interpolation to get daily outdoor data 2000-2025 - DONE
+# run spline interpolation to get daily outdoor data 2000-2025 - DONE
 
-    # run NicheMapR to get hourly microclimate data 2000-2025 - DONE
+# run NicheMapR to get hourly microclimate data 2000-2025 - DONE
 
-    # run cone model to get hourly water surface area 2000-2025 - DONE
+# run cone model to get hourly water surface area 2000-2025 - DONE
 
-    # run the population dynamic models to get hourly population data 2000-2025
+# run the population dynamic models to get hourly population data 2000-2025
 
-    # summarise the population dynamic and water surface area outputs to monthly
-    # data 2000-2025
+# summarise the population dynamic and water surface area outputs to monthly
+# data 2000-2025
 
-  # write the monthly summaries for this tile to disk as a CSV file
+# write the monthly summaries for this tile to disk as a CSV file
 
 # load the template raster and CSVs to create (~300) monthly GeoTIFFs of monthly
 # data, and 12 layers of synoptic values.
