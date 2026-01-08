@@ -247,13 +247,22 @@ dd_effect_As <- fixef(mortality_model)[["density"]]
 # area of 28.5814687428cm^2, or 0.00285814687m2.
 evans_area_cm2 <- pi * (6.0325 / 2) ^ 2
 
-# create the final function, using the Cox proportional hazards mapping
-das_temp_dens_As <- make_surv_temp_dens_function(
-  surv_temp_function = das_temp_As,
+
+# create a function to modify an existing aquatic survival probability (e.g. due
+# to temperature) based on density, using the Cox proportional hazards mapping
+das_densmod_As <- make_surv_densmod_function(
   dd_effect = dd_effect_As,
   surface_area_cm2 = evans_area_cm2,
   type = "cox_ph"
 )
+
+# create a combined temperature/density function for plotting
+das_temp_dens_As <- make_surv_temp_dens_function(
+  surv_temp_function = das_temp_As,
+  surv_densmod_function = das_densmod_As
+)
+
+
 
 # model larval density dependence for An. gambiae by extracting the slope of the
 # density dependence relationsship from Muriu et al. (2013) and combining it
@@ -264,14 +273,21 @@ dd_effect_Ag <- load_muriu_dd_survival_parameters() %>%
 # the dish in muriu is 35cm diameter, so ~~962cm2 surface area
 muriu_area_cm2 <- pi * (35 / 2) ^ 2
 
-# this was modelled a logistic function of log density, so we need to model it
-# differently for for stephensi
-das_temp_dens_Ag <- make_surv_temp_dens_function(
-  surv_temp_function = das_temp_Ag,
+# create a function to modify an existing aquatic survival probability (e.g. due
+# to temperature) based on density. This was modelled a logistic function of log
+# density, so we need to model it differently for for stephensi
+das_densmod_Ag <- make_surv_densmod_function(
   dd_effect = dd_effect_Ag,
-  surface_area_cm2 =  muriu_area_cm2,
+  surface_area_cm2 = muriu_area_cm2,
   type = "logit"
 )
+
+# create a combined temperature/density function for plotting
+das_temp_dens_Ag <- make_surv_temp_dens_function(
+  surv_temp_function = das_temp_Ag,
+  surv_densmod_function = das_densmod_Ag
+)
+
 
 # plot the survival model
 density_plotting <- expand_grid(
@@ -800,6 +816,8 @@ e$lifehistory_functions <- list(
     efd_temp = efd_temp_Ag,
     das_temp = das_temp_Ag,
     pea_temp = pea_temp_Ag,
+    das_temp = das_temp_Ag,
+    das_densmod = das_densmod_Ag,
     das_temp_dens = das_temp_dens_Ag,
     ds_temp_humid = ds_temp_humid_Ag
   ),
@@ -808,6 +826,8 @@ e$lifehistory_functions <- list(
     efd_temp = efd_temp_As,
     das_temp = das_temp_As,
     pea_temp = pea_temp_As,
+    das_temp = das_temp_As,
+    das_densmod = das_densmod_As,
     das_temp_dens = das_temp_dens_As,
     ds_temp_humid = ds_temp_humid_As
   )

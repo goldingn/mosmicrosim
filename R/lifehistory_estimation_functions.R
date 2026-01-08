@@ -518,14 +518,13 @@ load_villena_data <- function() {
 
 }
 
-# given a survival temperature function, a fitted density dependence parameter
-# (relative to some absolute number of individuals in a dish), the surface area
-# of that dish, and the type of relationship fitted,
-# return a survival function of temperature and density
-make_surv_temp_dens_function <- function(surv_temp_function,
-                                         dd_effect,
-                                         surface_area_cm2,
-                                         type = c("cox_ph", "logit")) {
+# given a fitted density dependence parameter (relative to some absolute number
+# of individuals in a dish), the surface area of that dish, and the type of
+# relationship fitted, return a function to *modify* a survival probability
+# (e.g. computed just based on temperature) to account for density
+make_surv_densmod_function <- function(dd_effect,
+                                        surface_area_cm2,
+                                        type = c("cox_ph", "logit")) {
 
   type <- match.arg(type)
 
@@ -533,13 +532,12 @@ make_surv_temp_dens_function <- function(surv_temp_function,
     # if the parameter for the density-dependent effect on survival is estimated
     # as in a Cox proportional hazards model, use a complementary log-log function
     # mapping:
-    fun <- function(temperature, density) {
+    fun <- function(surv_prob, density) {
       # scale density to the experimental dish size used in estimating the
       # equation
       density_dish <- density * surface_area_cm2
-      # get daily *mortality probability* at zero/low density at this
-      # temperature
-      daily_mortality_zero_density <- 1 - surv_temp_function(temperature)
+      # get daily *mortality probability* from the survival probability
+      daily_mortality_zero_density <- 1 - surv_prob
       # convert to the log hazard for a single day
       loghaz_mortality_zero_density <- log(-log(1 - daily_mortality_zero_density))
       # add on the density effect linear in log density (per dish used to
@@ -556,13 +554,12 @@ make_surv_temp_dens_function <- function(surv_temp_function,
     # if the parameter for the density-dependent effect on survival is estimated
     # as the slope in a logit model of log densities use that to transform with
     # complementary log-log function mapping
-    fun <- function(temperature, density) {
+    fun <- function(surv_prob, density) {
       # scale density to the experimental dish size used in estimating the
       # equation
       density_dish <- density * surface_area_cm2
-      # get logit of daily survival probability at zero/low density at this
-      # temperature
-      logit_daily_survival_zero_density <- qlogis(surv_temp_function(temperature))
+      # get logit of daily survival probability at zero/low density
+      logit_daily_survival_zero_density <- qlogis(surv_prob)
       # add on the density effect linear in log density (per dish used to
       # estimate the parameter)
       logit_daily_survival <- logit_daily_survival_zero_density +
@@ -579,6 +576,85 @@ make_surv_temp_dens_function <- function(surv_temp_function,
   fun
 
 }
+
+# given a survival temperature function, a fitted density dependence parameter
+# (relative to some absolute number of individuals in a dish), the surface area
+# of that dish, and the type of relationship fitted, return a survival function
+# of temperature and density (retained for consistency)
+make_surv_temp_dens_function <- function(surv_temp_function,
+                                         surv_densmod_function) {
+
+  function(temperature, density) {
+    surv_prob_raw <- surv_temp_function(temperature)
+    surv_prob_mod <- surv_densmod_function(surv_prob_raw, density)
+    surv_prob_mod
+  }
+
+}
+
+
+#
+# # given a survival temperature function, a fitted density dependence parameter
+# # (relative to some absolute number of individuals in a dish), the surface area
+# # of that dish, and the type of relationship fitted,
+# # return a survival function of temperature and density
+# make_surv_temp_dens_function <- function(surv_temp_function,
+#                                          dd_effect,
+#                                          surface_area_cm2,
+#                                          type = c("cox_ph", "logit")) {
+#
+#   type <- match.arg(type)
+#
+#   if(type == "cox_ph") {
+#     # if the parameter for the density-dependent effect on survival is estimated
+#     # as in a Cox proportional hazards model, use a complementary log-log function
+#     # mapping:
+#     fun <- function(temperature, density) {
+#       # scale density to the experimental dish size used in estimating the
+#       # equation
+#       density_dish <- density * surface_area_cm2
+#       # get daily *mortality probability* at zero/low density at this
+#       # temperature
+#       daily_mortality_zero_density <- 1 - surv_temp_function(temperature)
+#       # convert to the log hazard for a single day
+#       loghaz_mortality_zero_density <- log(-log(1 - daily_mortality_zero_density))
+#       # add on the density effect linear in log density (per dish used to
+#       # estimate the parameter)
+#       loghaz_mortality <- loghaz_mortality_zero_density +
+#         dd_effect * density_dish
+#       # convert back to a daily *mortality probability*, including the density
+#       # effect
+#       daily_mortality <- 1 - exp(-exp(loghaz_mortality))
+#       # and return as daily survival
+#       1 - daily_mortality
+#     }
+#   } else if (type == "logit") {
+#     # if the parameter for the density-dependent effect on survival is estimated
+#     # as the slope in a logit model of log densities use that to transform with
+#     # complementary log-log function mapping
+#     fun <- function(temperature, density) {
+#       # scale density to the experimental dish size used in estimating the
+#       # equation
+#       density_dish <- density * surface_area_cm2
+#       # get logit of daily survival probability at zero/low density at this
+#       # temperature
+#       logit_daily_survival_zero_density <- qlogis(surv_temp_function(temperature))
+#       # add on the density effect linear in log density (per dish used to
+#       # estimate the parameter)
+#       logit_daily_survival <- logit_daily_survival_zero_density +
+#         dd_effect * density_dish
+#       # convert back to a daily survival probability, including the density
+#       # effect, and return
+#       plogis(logit_daily_survival)
+#     }
+#   }
+#
+#   # add an attribute to the function denoting the type of prediction, and return
+#   # the appropriate function
+#   attr(fun, "type") <- type
+#   fun
+#
+# }
 
 dehydrate_lifehistory_function <- function(fun, path_to_object) {
 

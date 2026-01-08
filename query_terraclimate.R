@@ -577,6 +577,44 @@ hourly_sim |>
 abline(v = hourly_year_ends, lty = 3)
 
 
+# to do:
+
+# optimise population dynamic simulation
+
+#   das_function is called repeatedly, but need not be. Compute it once for the
+#   full timeseries, then modify the value dynamically based on the density:
+
+#     save das_temp (das_temp_Ag and das_temp_As) in the lifehistory parameters
+
+#     create a new function to *modify* aquatic survival based on density and a
+#     pre-computed survival, and save this in lifehistroy functions too
+
+#     precompute the temperature-dependent aquatic survival
+
+#     apply the density modification function inside the dynamics
+
+#   matrix being called repeatedly is slow (and impractical later when we come
+#   to vectorise), so solve as two-state difference model instead
+
+# rename hourly_climate to hourly_simulation
+
+# tidy up processing functions to add water volume (and later water temperature)
+# directly to hourly_simulation
+
+# tidy up processing functions to add mosquito population sizes directly to
+# hourly_simulation
+
+# amend water simulation to take a shade proportion argument (fixed to 1 for
+# now) and solve for water temperature in dynamics, under full shade (no solar
+# gain) scenario
+
+# vectorise the water nd population simulations to batch process multiple pixels
+# at once, in a matrix format
+
+# implement water temperature simulation with 0 <= shade <= 1, by computing
+# solar gain from cloud cover, GADS, etc.
+
+
 
 # consider vectorising the solutions to water volume and population dynamics
 # across pixels in a tile, for a speed-up
