@@ -357,7 +357,7 @@ trim_tile <- function(vec, template) {
 # as a matrix with each row giving the tile extents (xmin, xmax, ymin, ymax).
 # Tiles will only be returned that contain non-NA cells, and will be trimmed to
 # include only rows and columns that contain non-NA cells.
-make_tiles <- function(template, target_n_tiles = 100) {
+tile_template_raster <- function(template, target_n_tiles = 100) {
 
   # work out the fraction of non-missing cells in the raster, and adjust up the
   # number of tiles
@@ -497,70 +497,37 @@ clean_tile_data <- function(tile_data, tc_template) {
 }
 
 
-# Given a tibble of extracted monthly terraclimate data in wide format
-# per-variable (i.e. rows for observations but separate columns for tmax, tmin,
-# etc.), compute additional variables used by NicheMapR: min/max relative
+
+# Given a tibble of extracted monthly terraclimate data for a given pixel (in
+# wide format per-variable, i.e. rows for observations but separate columns for
+# tmax, tmin, etc.) and the latitude and longitude of that pixel, compute
+# additional variables used for microclimate modelling: min/max relative
 # humidity, min/max windspeed, min/max cloud cover, and rename precipitation as
 # rainfall (assumed no snow in areas we consider for mosquito population
-# dynamics). This involves execution of clear_sky_radiation_12mo(), which
-# involves running NicheMapR in solonly mode for each pixel, and can be slow. the user m
-process_terraclimate_tile_vars <- function(tile_data) {
+# dynamics). the use must also provide the lookup between the latitude,
+# longitude, and integer month (month_id) to add these values.
+process_terraclimate_pixel_vars <- function(monthly_terraclimate,
+                                            latitude,
+                                            longitude,
+                                            clearsky_lookup) {
 
-  # batch append the clearsky monthly synoptic data from the in-package
-  # information
-
-  # get the raster of tc-GADS hybrid cell numbers
-  tc_gads <- terra::unwrap(tc_gads_wrapped)
-
-  # find unique coordinates in this tile
-  unique_coords <- tile_data |>
-    dplyr::distinct(
-      longitude,
-      latitude
-    )
-
-  # add on the cell ID
-  clearsky_lookup <- unique_coords |>
+  # add date range information: lookup month from middle of date range,
+  # number of days for computing daily rainfall
+  monthly_terraclimate |>
     dplyr::mutate(
-      cell_id = terra::extract(tc_gads,
-                                 unique_coords,
-                                 ID = FALSE)[, 1]
-    ) |>
-    # and the clearsky monthly information for these cells
-    dplyr::left_join(
-      clear_sky_lookup,
-      by = "cell_id"
-    ) |>
-    dplyr::select(
-      -cell_id
-    ) |>
-    # add on a month ID
-    dplyr::mutate(
-      month_id = list(1:12),
-      .before = clear_sky_SOLR
-    ) |>
-    # unnest lists
-    tidyr::unnest(
-      c(month_id, clear_sky_SOLR)
-    ) |>
-    # get rid of column-ness
-    dplyr::mutate(
-      clear_sky_SOLR = as.numeric(clear_sky_SOLR)
-    )
-
-  # process terraclimate data into format required for NicheMapR micro function
-  tile_data |>
-    # add a midpoint date, for looking up solar radiation max/min, and later
-    # for splining, plus a number of days for computing daily rainfall
-    dplyr::mutate(
-      mid_date = start + (end - start) / 2,
+      month_id = lubridate::month(start + (end - start) / 2),
       n_days = as.numeric(end - start),
       .before = start
     ) |>
-    # pivot wider to compute things
-    tidyr::pivot_wider(
-      names_from = variable,
-      values_from = value
+    # temporarily add the latitude and longitude for the clearsky lookup
+    dplyr::mutate(
+      latitude = latitude,
+      longitude = longitude,
+    ) |>
+    # add on the clearsky information
+    dplyr::left_join(
+      clearsky_lookup,
+      by = c("latitude", "longitude", "month_id")
     ) |>
     # compute relative humidity max/min, by first computing vapour pressure
     # from mean temp and vp deficit then computing RH at max/min temps
@@ -573,21 +540,14 @@ process_terraclimate_tile_vars <- function(tile_data) {
     # adjust wind speed from measured height (10m) to match the other inputs
     # (2m) and split by max/min (using NicheMapR's ad-hoc adjusment for min)
     dplyr::mutate(
-      wsmax = adjust_wind_speed(ws, height_required = 2, height_measured = 10),
+      wsmax = adjust_wind_speed(ws,
+                                height_required = 2,
+                                height_measured = 10),
       wsmin = wsmax * 0.1
     ) |>
-    # append the expected clear sky radiation (microclimate code using
-    # coordinates and aerosol data) and use this to compute cloud cover
-    # percentage from solar radiation (terraclimate) and and manual multipliers
-    # to enforce daily variation, as used in NicheMapR
-    dplyr::mutate(
-      month_id = lubridate::month(mid_date)
-    ) |>
-    dplyr::left_join(
-      clearsky_lookup,
-      by = c("latitude", "longitude", "month_id")
-    ) |>
-    # compute cloud cover
+    # back-calculate cloud cover (as proportion of solar radiation making it
+    # past the clouds) from terraclimate solar radiation, and the expected
+    # clearsky radiation from GADS
     dplyr::mutate(
       ccmax = cloud_cover(srad, clear_sky_SOLR, multiplier = 1.2),
       ccmin = cloud_cover(srad, clear_sky_SOLR, multiplier = 0.8)
@@ -597,25 +557,15 @@ process_terraclimate_tile_vars <- function(tile_data) {
     dplyr::mutate(
       rainfall_daily = ppt / n_days
     ) |>
-    # group by lat and long and store the monthly data we need as a list column
-    dplyr::group_by(
-      longitude,
-      latitude
-    ) |>
-    dplyr::summarise(
-      monthly_climate = list(
-        tibble::tibble(
-          start,
-          end,
-          mid_date,
-          tmin, tmax,
-          rhmin, rhmax,
-          wsmin, wsmax,
-          ccmin, ccmax,
-          rainfall_daily
-        )
-      ),
-      .groups = "drop"
+    # select only the variables we need
+    dplyr::select(
+      start,
+      end,
+      tmin, tmax,
+      rhmin, rhmax,
+      wsmin, wsmax,
+      ccmin, ccmax,
+      rainfall_daily
     )
 
 }

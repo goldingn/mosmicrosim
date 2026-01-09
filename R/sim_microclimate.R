@@ -13,9 +13,11 @@ daily_from_monthly_climate <- function(monthly_climate) {
 
   monthly_climate |>
 
-    # maybe transform daily rainfall for splining, then convert back later
     dplyr::mutate(
-      rainfall_daily = log1p(rainfall_daily)
+      # compute the midpoint fo the date range for splining
+      mid_date = start + (end - start) / 2,
+      # maybe transform daily rainfall for splining, then convert back later
+      rainfall_daily = log1p(rainfall_daily),
     ) |>
 
     tidyr::pivot_longer(

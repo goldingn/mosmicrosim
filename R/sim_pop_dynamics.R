@@ -76,45 +76,60 @@ iterate_state <- function(state,
 
 }
 
-# simulate for a full timeseries, with optional multiple years of burnin
-simulate_population <- function(
+# given a tibble of hourly conditions, return a tibble of environment-dependent
+# lifehistory parameters
+simulate_vector_lifehistory <- function(
     hourly_conditions,
-    lifehistory_functions,
+    lifehistory
+) {
+
+  hourly_conditions |>
+    dplyr::mutate(
+      # mosquito (ie. aquatic) development rate
+      mdr = lifehistory$mdr_temp(water_temperature),
+      # eggs per female per day
+      efd = lifehistory$efd_temp(air_temperature),
+      # daily aquatic survival at zero density (ie. due to water temperature), which
+      # we will modify it later by density, to avoid having to re-run
+      # temperature-dependent survival calculations at every iteration
+      das_zerodensity = lifehistory$das_temp(water_temperature),
+      # daily (adult) survival at this temperature and humidity
+      ds = lifehistory$ds_temp_humid(
+        temperature = air_temperature,
+        humidity = humidity
+      ),
+      # drop an annoying dimension from the GAM predictions
+      ds = as.vector(ds),
+      # relative amount of larval habitat available
+      larval_habitat_area = water_surface_area
+    ) |>
+    dplyr::select(
+      date,
+      hour,
+      mdr,
+      efd,
+      das_zerodensity,
+      ds,
+      larval_habitat_area
+    )
+
+}
+
+# simulate for a full timeseries, with optional multiple years of burnin.
+simulate_population <- function(
+    hourly_lifehistory,
+    das_densmod_function,
     initial_adult = 100,
     initial_aquatic = 100,
-    burnin_years = 1) {
+    burnin_years = 1
+) {
 
   # add whole year of burnin
-  n_times <- length(hourly_conditions$water_temperature)
+  n_times <- nrow(hourly_lifehistory)
   index <- rep(seq_len(n_times), burnin_years + 1)
 
-  # pull out environment-dependent lifehistory parameter timeseries
-
-  # mosquito (ie. aquatic) development rate
-  mdr <- lifehistory_functions$mdr_temp(
-    hourly_conditions$water_temperature[index]
-  )
-
-  # eggs per female per day
-  efd <- lifehistory_functions$efd_temp(
-    hourly_conditions$air_temperature[index]
-  )
-
-  # daily aquatic survival at zero density (ie. due to water temperature), which
-  # we will modify it later by density, to avoid having to re-run
-  # temperature-dependent survival calculations at every iteration
-  das_zerodensity <- lifehistory_functions$das_temp(
-    hourly_conditions$water_temperature[index]
-  )
-
-  # daily (adult) survival at this temperature and humidity
-  ds <- lifehistory_functions$ds_temp_humid(
-    temperature = hourly_conditions$air_temperature[index],
-    humidity = hourly_conditions$humidity[index]
-  )
-
-  # relative amount of larval habitat available
-  larval_habitat_area <- hourly_conditions$water_surface_area[index]
+  # replicate the pre-computed lifehistory parameters
+  hourly_lifehistory <- hourly_lifehistory[index, ]
 
   # simulate the population
   n <- length(index)
@@ -137,13 +152,14 @@ simulate_population <- function(
     state <- iterate_state(
       state = state,
       t = t,
-      das_densmod_function = lifehistory_functions$das_densmod,
-      larval_habitat_area = larval_habitat_area,
-      mdr = mdr,
-      efd = efd,
-      das_zerodensity = das_zerodensity,
-      ds = ds
+      das_densmod_function = das_densmod_function,
+      larval_habitat_area = hourly_lifehistory$larval_habitat_area,
+      mdr = hourly_lifehistory$mdr,
+      efd = hourly_lifehistory$efd,
+      das_zerodensity = hourly_lifehistory$das_zerodensity,
+      ds = hourly_lifehistory$ds
     )
+
     # track the recent states
     aquatic_states[t] <- state$aquatic
     adult_states[t] <- state$adult
@@ -153,7 +169,7 @@ simulate_population <- function(
   keep_index <- tail(seq_along(index), n_times)
 
   # and return the vectors, discarding the burnin
-  list(
+  dplyr::tibble(
     aquatic = aquatic_states[keep_index],
     adult = adult_states[keep_index]
   )
