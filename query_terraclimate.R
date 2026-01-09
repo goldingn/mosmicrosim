@@ -18,28 +18,15 @@ library(ggplot2)
 template <- rast("~/Dropbox/github/ir_cube/data/clean/raster_mask.tif")
 
 # create a corresponding terraclimate raster (aligned with terraclimate grid
-# location, and excluding missing cells in terraclimate or more than 1 cell away
-# from template cells with data)
+# setup, and excluding missing cells in terraclimate or more than 1 cell away
+# from template cells with data). This enables calculation on the
+# terraclimate-native setup that can then be resampled to the template raster
+# after all processing is complete
 tc_template <- make_terraclimate_template(template)
 
-# make an altitude raster on the right pixels by disaggregating and resampling
-# the lower-res NicheMapR one, and interpolating coastal regions
-altitude_nichemapr <- get_altitude_raster()
-agg <- round(mean(res(altitude_nichemapr) / res(tc_template)))
-altitude <- altitude_nichemapr |>
-  terra::disagg(agg) |>
-  terra::crop(tc_template) |>
-  terra::resample(tc_template,
-                  method = "bilinear") |>
-  terra::mask(tc_template)
-
-# extend out this layer to match
-altitude_blur <- terra::focal(altitude,
-                              w = 5,
-                              fun = "mean",
-                              na.policy = "only")
-altitude_blur[!is.na(altitude)] <- altitude
-altitude <- terra::mask(altitude_blur, tc_template)
+# get an elevation layer in this format (is this needed? Just have the altitude
+# function default to the terraclimate one?)
+tc_elevation <- get_tc_elevation_raster(tc_template)
 
 # now batch-process this by defining tiles covering the continent,
 # and extracting whole slices for those tiles for the required times
@@ -114,6 +101,7 @@ tile_data_sub <- tile_data |>
   ) |>
   dplyr::ungroup()
 
+
 # profvis::profvis(rerun = TRUE, expr = {
 process_time <- system.time(expr = {
   # process these variables for input to NicheMapR
@@ -128,7 +116,7 @@ process_time <- system.time(expr = {
       altitude = altitude_m(
         longitude = longitude,
         latitude = latitude,
-        altitude_raster = altitude
+        altitude_raster = tc_elevation
       ),
       .before = monthly_climate
     ) |>
@@ -350,63 +338,38 @@ abline(v = hourly_year_ends, lty = 3)
 
 # to do:
 
-# optimise population dynamic simulation
-# DONE
+# tidy up processing functions
 
-#   das_function is called repeatedly, but need not be. Compute it once for the
-#   full timeseries, then modify the value dynamically based on the density:
-#     DONE
+#   streamline processing of terraclimate data
 
-#     save das_temp (das_temp_Ag and das_temp_As) in the lifehistory parameters
-#     DONE
+#   add single processing function to model aquatic habitat (water surface area
+#   and later water temperature) and add it directly to hourly_simulation in
+#   tibbles, across multiple sites
 
-#     create a new function to *modify* aquatic survival based on density and a
-#     pre-computed survival, and save this in lifehistroy functions too
-#     DONE
+#   add single processing function to model mosquito population sizes and add it
+#   directly to hourly_simulation in tibbles, across multiple sites (as above)
 
-#     precompute the temperature-dependent aquatic survival
-#     DONE
+#   add processing functions to summarise mosquito populations and possibly other
+#   parameters (e.g. aquatic conditions) daily and monthly
 
-#     apply the density modification function inside the dynamics
-#     DONE
-
-#   matrix being called repeatedly is slow (and impractical later when we come
-#   to vectorise), so solve as two-state difference model instead
-#   DONE
-
-# rename hourly_climate to hourly_simulation
-# DONE
-
-# tidy up processing functions to add water volume (and later water temperature)
-# directly to hourly_simulation
-
-# tidy up processing functions to add mosquito population sizes directly to
-# hourly_simulation
+# vectorise the water and population simulations to batch process multiple
+# pixels at once, in matrix formats (add ID for location, unnest, convert into a
+# series of matrices, iterate through time on those matrices solving multiple
+# locations simultaneously)
 
 # amend water simulation to take a shade proportion argument (fixed to 1 for
 # now) and solve for water temperature in dynamics, under full shade (no solar
 # gain) scenario
-
-# vectorise the water nd population simulations to batch process multiple pixels
-# at once, in a matrix format
 
 # implement water temperature simulation with 0 <= shade <= 1, by computing
 # solar gain from cloud cover, GADS, etc.
 
 
 
-# consider vectorising the solutions to water volume and population dynamics
-# across pixels in a tile, for a speed-up
-
-# running without population simulation, simulate_ephemeral_habitat takes ~half the
-# execution time (with 10 or 100 pixels), so this would likely help
-
-# Interestingly, indexing vectors of environmental conditions seems to take the
-# most time. Is there a more efficient way of doing this? Will be faster to
-# index a time slice across multiple pixels, anyway
 
 
-# look into modelling water temperature at the same time as water volume
+
+# notes on modelling water temperature at the same time as water volume:
 
 # simple model: fully-shaded waterbody (no solar gain):
 # - energy loss due to evaporation (transformation of already calculated value)

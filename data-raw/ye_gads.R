@@ -28,6 +28,7 @@ library(NicheMapR)
 library(tidyverse)
 library(terra)
 library(furrr)
+library(geodata)
 library(mosmicrosim)
 
 # source("R/create_micro.R")
@@ -183,10 +184,27 @@ clear_sky_lookup <- tc_gads_lookup_coords |>
     -longitude
   )
 
+
+# Download global 5km (2.5 arcminute) resolution elevation data (aggregated from
+# 90m hole-filled CGIAR-SRTM) from UC DAVIS geodata portal
+elev_5km <- geodata::elevation_global(res = 2.5,
+                                      path = tempdir())
+
+# make a corresponding terraclimate-aligned 5km template
+tc_5km <- mosmicrosim:::make_terraclimate_template(elev_5km)
+
+# resample the 5km elevation layer to this
+tc_elev <- terra::resample(elev_5km,
+                           tc_5km,
+                           method = "bilinear")
+names(tc_elev) <- "elevation"
+
+
+
 # NOTE: the above code is circular and non-reproducible. Solar attenuation
 # lookup needs to be saved and stored in the package before clearsky can run.
 # However they need to be run together to go into the same internal sysdata.rda
-# file. to work around this, just comment out the clearsky_lookup save on the
+# file. To work around this, just comment out the clearsky_lookup save on the
 # first run through, rebuild the package, and on the second run through either
 # rebuild both, or skip running solar_attenuation_lookup the second time and
 # reload with:
@@ -201,8 +219,8 @@ usethis::use_data(solar_attenuation_lookup,
                   overwrite = TRUE,
                   compress = "xz")
 
-# save the GADS raster, the tc native raster, and the tc-GADS hybrid raster in
-# inst/extdata to access later
+# save the GADS raster, the tc native raster, the tc-GADS hybrid raster, and the
+# tc elevation raster in inst/extdata to access later
 terra::writeRaster(ye_gads,
                    "inst/extdata/ye_gads.tif",
                    overwrite = TRUE)
@@ -213,6 +231,10 @@ terra::writeRaster(tc_native,
 
 terra::writeRaster(tc_gads,
                    "inst/extdata/tc_gads.tif",
+                   overwrite = TRUE)
+
+terra::writeRaster(tc_elev,
+                   "inst/extdata/tc_elev.tif",
                    overwrite = TRUE)
 
 

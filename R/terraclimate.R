@@ -69,7 +69,7 @@ nearest_coord <- function(value, available) {
   error <- abs(available - value)
   acceptable <- error < 1/48
   if (any(acceptable)) {
-    index <- which(acceptable)
+    index <- which(acceptable)[1]
   } else {
     index <- which(error < 1/47.9)[1]
   }
@@ -266,12 +266,30 @@ make_terraclimate_template <- function(template) {
     terraclimate_available$longitudes <= dims$xmax
   y_valid <- terraclimate_available$latitudes >= dims$ymin &
     terraclimate_available$latitudes <= dims$ymax
-  tc_ext <- ext(c(range(terraclimate_available$longitudes[x_valid]),
-                  range(terraclimate_available$latitudes[y_valid])))
+
+
+  # get an extent based on the cell centroids, so the correct values can be
+  # extracted from terraclimate
+  xlim_centroid <- range(terraclimate_available$longitudes[x_valid])
+  ylim_centroid <- range(terraclimate_available$latitudes[y_valid])
+  tc_ext_centroid <- ext(c(xlim_centroid, ylim_centroid))
+
+  # and make another extent where this is padded by half the terraclimate cell
+  # width, to make the extent of the raster containing these data
+  terraclimate_res <- c(
+    abs(mean(diff(terraclimate_available$longitudes))),
+    abs(mean(diff(terraclimate_available$latitudes)))
+  )
+  xlim <- xlim_centroid + c(-1, 1) * 0.5 * terraclimate_res[1]
+  ylim <- ylim_centroid + c(-1, 1) * 0.5 * terraclimate_res[2]
+  tc_ext_edge <- ext(c(xlim, ylim))
+
+  # tc_ext <- ext(c(range(terraclimate_available$longitudes[x_valid]),
+  #                 range(terraclimate_available$latitudes[y_valid])))
 
   # find the non-NA elements in this raster by building a slice with one date and
   # extracting one value
-  raster_slice <- terraclimate_build_slice_extent(tc_ext,
+  raster_slice <- terraclimate_build_slice_extent(tc_ext_centroid,
                                                   dates = as.Date("2020-01-01"))
   # this function is set up to extract extra dates to ensure we can spline to
   # these dates, but we only need one value for this so manually switch to the one
@@ -285,7 +303,7 @@ make_terraclimate_template <- function(template) {
   # put them in a raster
   tc_template <- rast(nrows = sum(y_valid),
                       ncols = sum(x_valid),
-                      extent = tc_ext,
+                      extent = tc_ext_edge,
                       vals = t(vals))
 
   # resample the target raster to this one
@@ -600,4 +618,43 @@ process_terraclimate_tile_vars <- function(tile_data) {
       .groups = "drop"
     )
 
+}
+
+# load the tc elevation raster on package loading, to have it available
+# internally
+tc_elev_file <- system.file("extdata",
+                            "tc_elev.tif",
+                            package = "mosmicrosim")
+tc_elev <- terra::rast(
+  tc_elev_file
+)
+
+# wrap it, so it can be serialised (e.g. passed to future) without losing the
+# pointer
+tc_elev_wrapped <- terra::wrap(tc_elev)
+
+# given a template raster 'tc_template' which is aligned with the terraclimate
+# 5km grid, i.e. as created with make_terraclimate_template(), return a
+# corresponding raster of the elevation of each cell in metres. These data are
+# aggregated and resampled to the terraclimate grid from 90m hole-filled
+# CGIAR-SRTM.
+get_tc_elevation_raster <- function(tc_template) {
+
+  # get the raster of tc-GADS hybrid cell numbers
+  tc_elev <- terra::unwrap(tc_elev_wrapped)
+
+  # check they passed something that looks vaguely right
+  same_res <- max(abs(res(tc_elev) - res(tc_template))) < 1e-8
+  if (!same_res) {
+    stop(
+      "tc_template must be a SpatRaster matching the terraclimate 5km grid",
+      "layout, e.g. as created by make_terraclimate_template()",
+      call. = FALSE
+    )
+  }
+
+  # process and return
+  tc_elev |>
+    terra::crop(tc_template) |>
+    terra::mask(tc_template)
 }
