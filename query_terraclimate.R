@@ -103,54 +103,6 @@ pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
     n = 30
   )
 
-# # convert terracliamte data into monthly variables needed for microclimate
-# # modelling
-# pixel_monthly_climate <- terraclimate_to_monthly_climate(
-#   pixel_terraclimate_data_sub
-# )
-#
-# # interpolate these to daily max/min data
-# pixel_daily_climate <- interpolate_daily_climate(
-#   pixel_monthly_climate
-# )
-#
-# # interpolate microclimates on an hourly timestep
-# pixel_hourly_microclimate <- simulate_hourly_microclimate(
-#   pixel_daily_climate
-# )
-#
-# # model conditions experienced by vectors in the microclimate (microclimate,
-# # plus water surface area and water temperature) on an hourly timestep
-# pixel_hourly_conditions <- simulate_hourly_conditions(
-#   pixel_hourly_microclimate,
-#   model_water_temperature = FALSE,
-#   water_shade_proportion = 1
-# )
-#
-# # model vector lifehistory parameters
-# pixel_hourly_lifehistory <- simulate_hourly_lifehistory(
-#   pixel_hourly_conditions,
-#   species = "An. gambiae"
-# )
-#
-# # model vector populations and transmission-relevant parameters
-# pixel_hourly_vector <- simulate_hourly_vectors(
-#   pixel_hourly_lifehistory
-# )
-#
-# # aggregate by day
-# pixel_daily_vector <- summarise_vectors(
-#   pixel_hourly_vector,
-#   aggregate_by = "day"
-# )
-#
-# # aggregate by month
-# pixel_monthly_vector <- summarise_vectors(
-#   pixel_hourly_vector,
-#   aggregate_by = "month"
-# )
-
-
 # profvis::profvis(rerun = TRUE, expr = {
 process_time <- system.time(expr = {
 
@@ -181,6 +133,28 @@ process_time <- system.time(expr = {
 
 })
 
+# for 30 pixels, ~39s
+
+# 12s simulate_hourly_vectors
+#   5s pivot_wider
+# 10s simulate_hourly_conditions
+#   4s pivot_wider
+# 10s predict.gam (in ds_temp_humid)
+
+
+# after speeding up with dtplyr version of pivot_wider:
+# for 30 pixels, ~66s (?!)
+# 7s simulate_hourly_vectors
+# 5s simulate_hourly_conditions
+# 10s predict.gam (in ds_temp_humid)
+# but 27s of dcast (datatable version of pivot_wider)?
+
+
+# speed up pivot_wider calls:
+# - specify id_cols to use as keys?
+
+
+
 # download time ~65s for a small tile (tile 1, ~2.4 square degrees) and ~268s
 # for the largest possible tile (e.g. tile 5, ~25.6 square degrees)
 download_time["elapsed"]
@@ -191,6 +165,10 @@ nrow(tiles) * 268  / 3600
 
 # processing time for this subset
 process_time["elapsed"]
+
+# 88.8s with 30 pixels & datatable
+# 70s with 30 pixels & dplyr ?!
+# 59s with 30 pixels & lapply version
 
 # number of pixels in this subset
 n_pixels <- nrow(pixel_terraclimate_data_sub)
@@ -207,8 +185,8 @@ hours / 24
 # 1.23s for a single pixel for ambient microclimate and water volume, so 14-6
 # hours processing time on a 64 core machine for ambient microclimate only
 
-# this with ambient microclimate and with population simulation, no speedups:
-# 63h!
+# with ambient microclimate and with population simulation, on a 64 core machine
+# 24h processing time
 seconds_per_pixel <- process_time["elapsed"] / n_pixels
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours

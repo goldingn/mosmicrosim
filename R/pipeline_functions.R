@@ -1,6 +1,36 @@
 # Pipeline functions for modelling vector metrics (population sizes and
 # lifehistory parameters) from terraclimate data and microclimate models
 
+# given a named list of tidy format tibbles of variables, each with the columns:
+# 'time_index', 'pixel_index', 'value', and with the list element names giving
+# the name of the variable, efficiently combine them into a single tibble with
+# each variable's value under its name and side by side. This is around 1e4 times
+# faster than using dplyr::pivot_wider (or the dtplyr equivalent), like this:
+# variable_list |>
+#   dplyr::bind_rows(
+#     .id = "variable"
+#   ) |>
+# tidyr::pivot_wider(
+#   names_from = variable,
+#   values_from = value
+# )
+recombine_variables <- function(variable_list) {
+  # pull out a copy of the indices
+  indices <- variable_list[[1]] |>
+    dplyr::select(
+      time_index,
+      pixel_index
+    )
+  # get a list of the values for each variables, as a vector
+  values_list <- lapply(variable_list,
+                        function(x) {x$value})
+  # name them
+  names(values_list) <- names(variable_list)
+  # combine them
+  dplyr::bind_cols(
+    indices, values_list
+  )
+}
 
 # given a template raster aligned with the terraclimate grid, make
 # (approximately target_n_tiles) processing tiles, and return a tibble with a
@@ -424,15 +454,16 @@ simulate_hourly_conditions <- function(
           )
       }
     ) |>
-    # combine them, adding the variable names
-    dplyr::bind_rows(
-      .id = "variable"
-    ) |>
-    # make wide again
-    tidyr::pivot_wider(
-      names_from = variable,
-      values_from = value
-    ) |>
+    # stack these side by side (with lapply - much faster than bind_rows and
+    # pivot_wider)
+    recombine_variables() |>
+#     dplyr::bind_rows(
+#       .id = "variable"
+#     ) |>
+#     tidyr::pivot_wider(
+#       names_from = variable,
+#       values_from = value
+#     ) |>
     # add on the time information and drop the index
     dplyr::left_join(
       times_info,
@@ -619,6 +650,7 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
     lapply(
       function(parameter_tbl) {
         parameter_tbl |>
+          # do the pivot_wider with data.table, via dtplyr, then coerce back
           tidyr::pivot_wider(
             names_from = pixel_index,
             values_from = value
@@ -632,20 +664,6 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
 
   # now run vectorised population simulation to return a named list with
   # time-by-pixel matrices of adult and aquatic population sizes
-
-  # water_list <- simulate_ephemeral_habitat_vectorised(
-  #   rainfall_matrix = variable_list$rainfall,
-  #   air_temperature_matrix = variable_list$air_temperature,
-  #   humidity_matrix = variable_list$humidity,
-  #   windspeed_matrix = variable_list$windspeed,
-  #   altitude_vector = pixel_info$altitude,
-  #   initial_volume = 0,
-  #   burnin_years = 0,
-  #   max_cone_depth = 1,
-  #   inflow_multiplier = 1
-  # )
-
-
   population_list <- simulate_population_vectorised(
     # precomputed lifehistory parameters in time-by-pixel matrices
     larval_habitat_area_matrix = parameter_list$larval_habitat_area,
@@ -691,15 +709,16 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
           )
       }
     ) |>
-    # combine them, adding the variable names
-    dplyr::bind_rows(
-      .id = "variable"
-    ) |>
-    # make wide again
-    tidyr::pivot_wider(
-      names_from = variable,
-      values_from = value
-    ) |>
+    # stack these side by side (with lapply - much faster than bind_rows and
+    # pivot_wider)
+    recombine_variables() |>
+#     dplyr::bind_rows(
+#       .id = "variable"
+#     ) |>
+#     tidyr::pivot_wider(
+#       names_from = variable,
+#       values_from = value
+#     ) |>
     # add on the time information and drop the index
     dplyr::left_join(
       times_info,
