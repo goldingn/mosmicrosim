@@ -531,41 +531,215 @@ simulate_hourly_lifehistory <- function(
 # the species name)
 simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
 
-  # run the population simulation code, for each pixel separately
-  pixel_hourly_lifehistory |>
+  # add a pixel index to the hourly microclimate data
+  data_with_pixel <- pixel_hourly_lifehistory |>
+    dplyr::mutate(
+      pixel_index = dplyr::row_number(),
+      .before = everything()
+    )
+
+  # get a lookup from this to the pixel info, so we can add the info back later
+  pixel_info <- data_with_pixel |>
+    dplyr::select(
+      -hourly_lifehistory
+    )
+
+  # check they are all the same species, so we can use the same density
+  # dependence modification function across all pixels
+  all_same_species <- all(pixel_info$species == pixel_info$species[1])
+  if (!all_same_species) {
+    stop(
+      "All pixel calculations must be for the same species when running
+      simulate_hourly_vectors(). Consider doing `group_by(species)`.",
+    call. = FALSE)
+  }
+
+  das_densmod_function <- pixel_info$das_densmod_function[[1]]
+
+  # create a lookup between a time index and the dates and htimes
+  times_info <- data_with_pixel$hourly_lifehistory[[1]] |>
+    dplyr::select(
+      date,
+      hour
+    ) |>
+    dplyr::mutate(
+      time_index = dplyr::row_number(),
+      .before = everything()
+    )
+
+  # create a grouped (by lifehistory parameter) tibble of values per parameter,
+  # pixel, and time
+  parameters <- data_with_pixel |>
+    # drop unneeded pixel info (to prevent duplication and memory clog)
+    dplyr::select(
+      pixel_index,
+      hourly_lifehistory
+    ) |>
+    # unnest the lifehistory data and add on the time index
+    tidyr::unnest(
+      hourly_lifehistory
+    ) |>
+    dplyr::left_join(
+      times_info,
+      by = c("date", "hour")
+    ) |>
+    # drop unneeded time and climate info (to prevent duplication and memory clog)
+    dplyr::select(
+      -date,
+      -hour
+    ) |>
+    # convert to long format
+    tidyr::pivot_longer(
+      cols = !any_of(c("pixel_index", "time_index")),
+      names_to = "parameter",
+      values_to = "value"
+    ) |>
+    dplyr::relocate(
+      parameter,
+      .before = everything()
+    ) |>
+    # group by parameter, so we can turn into a named list of matrices next
     dplyr::group_by(
-      longitude,
-      latitude,
-      species
+      parameter
+    )
+
+  # names of the variables
+  parameter_names <- dplyr::group_keys(parameters)$parameter
+
+  # create a named list with each element containing a time-by-pixel matrix of the
+  # values of each of the different microclimate variables used for modelling
+  # water
+  parameter_list <- parameters |>
+    dplyr::group_split(
+      .keep = FALSE
+    ) |>
+    setNames(
+      parameter_names
+    ) |>
+    lapply(
+      function(parameter_tbl) {
+        parameter_tbl |>
+          tidyr::pivot_wider(
+            names_from = pixel_index,
+            values_from = value
+          ) |>
+          dplyr::select(
+            -time_index
+          ) |>
+          as.matrix()
+      }
+    )
+
+  # now run vectorised population simulation to return a named list with
+  # time-by-pixel matrices of adult and aquatic population sizes
+
+  # water_list <- simulate_ephemeral_habitat_vectorised(
+  #   rainfall_matrix = variable_list$rainfall,
+  #   air_temperature_matrix = variable_list$air_temperature,
+  #   humidity_matrix = variable_list$humidity,
+  #   windspeed_matrix = variable_list$windspeed,
+  #   altitude_vector = pixel_info$altitude,
+  #   initial_volume = 0,
+  #   burnin_years = 0,
+  #   max_cone_depth = 1,
+  #   inflow_multiplier = 1
+  # )
+
+
+  population_list <- simulate_population_vectorised(
+    # precomputed lifehistory parameters in time-by-pixel matrices
+    larval_habitat_area_matrix = parameter_list$larval_habitat_area,
+    mdr_matrix = parameter_list$mdr,
+    efd_matrix = parameter_list$efd,
+    das_zerodensity_matrix = parameter_list$das_zerodensity,
+    ds_matrix = parameter_list$ds,
+    # and the density dependence modifier on aquatic-stage
+    # survival
+    das_densmod_function = das_densmod_function
+  )
+
+
+  # combine this list with the microclimate information that is needed for
+  # modelling mosquito lifehistory parameters
+  final_list <- c(parameter_list,
+                  population_list)
+
+  # now convert this list of pixel-by-time condition information back into a
+  # tibble with a list column of conditions per pixel (with time info added back
+  # on), and add back on the pixel info
+  final_list |>
+    lapply(
+      function(matrix) {
+        # convert matrix to tidy format tibble with indices
+        n_pixels <- ncol(matrix)
+        matrix |>
+          `colnames<-`(
+            seq_len(n_pixels)
+          ) |>
+          dplyr::as_tibble() |>
+          dplyr::mutate(
+            time_index = dplyr::row_number(),
+            .before = everything()
+          ) |>
+          tidyr::pivot_longer(
+            cols = !any_of("time_index"),
+            names_to = "pixel_index",
+            values_to = "value"
+          ) |>
+          dplyr::mutate(
+            pixel_index = as.numeric(pixel_index)
+          )
+      }
+    ) |>
+    # combine them, adding the variable names
+    dplyr::bind_rows(
+      .id = "variable"
+    ) |>
+    # make wide again
+    tidyr::pivot_wider(
+      names_from = variable,
+      values_from = value
+    ) |>
+    # add on the time information and drop the index
+    dplyr::left_join(
+      times_info,
+      by = "time_index"
+    ) |>
+    dplyr::select(
+      -time_index
+    ) |>
+    # turn the useful conditions information (not rainfall or windspeed) into a
+    # list column
+    dplyr::group_by(
+      pixel_index
     ) |>
     dplyr::summarise(
-      # return a combined tibble of vector populations and environment-dependent
-      # lifehistory parameters
       hourly_vector = list(
-        dplyr::bind_cols(
-          # put date and hour first
-          dplyr::select(
-            hourly_lifehistory[[1]],
-            date,
-            hour
-          ),
-          # simulated population sizes
-          simulate_population(
-            # precomputed lifehistory parameters
-            hourly_lifehistory = hourly_lifehistory[[1]],
-            # and the corresponding density dependence modifier on aqautic-stage
-            # survival
-            das_densmod_function = das_densmod_function[[1]]
-          ),
-          # and environment-dependent lifehistory parameters
-          dplyr::select(
-            hourly_lifehistory[[1]],
-            -date,
-            -hour
-          )
+        dplyr::tibble(
+          date,
+          hour,
+          adult,
+          aquatic,
+          larval_habitat_area,
+          ds,
+          mdr,
+          efd,
+          das_zerodensity
         )
       ),
       .groups = "drop"
+    ) |>
+    # now add back on the pixel information
+    dplyr::left_join(
+      pixel_info,
+      by = "pixel_index"
+    ) |>
+    dplyr::relocate(
+      hourly_vector,
+      .after = everything()
+    ) |>
+    dplyr::select(
+      -pixel_index
     )
 
 }

@@ -31,15 +31,15 @@ iterate_state <- function(state,
   # given the current aquatic density and current survival at zero density (ie.
   # as a function of water temperature), update daily aquatic survival to be
   # density- (and temperature-) dependent
-  aquatic_density <- aquatic / larval_habitat_area[t]
-  das_t <- das_densmod_function(surv_prob = das_zerodensity[t],
+  aquatic_density <- aquatic / larval_habitat_area[t, ]
+  das_t <- das_densmod_function(surv_prob = das_zerodensity[t, ],
                                 density = aquatic_density)
 
   # convert all of these to the required timestep
 
   # survival probabilities cumulative (bernoulli process of surviving)
   aquatic_survival_prob <- das_t ^ timestep
-  adult_survival_prob <- ds[t] ^ timestep
+  adult_survival_prob <- ds[t, ] ^ timestep
 
   # set fraction emerging to the emergence probability from on emergence hazard
   # model. MDR is the mosquito development rate (rate of aquatic stages
@@ -47,11 +47,11 @@ iterate_state <- function(state,
   # aquatic lifestage in days, and 1 - exp(-MDR) is the expected fraction
   # emerging in a single day. We convert MDR to emergence rate in units
   # of 'timestep', and compute the expected fraction emerging in this interval
-  emergence_rate <- timestep * mdr[t]
+  emergence_rate <- timestep * mdr[t, ]
   emergence_fraction <- 1 - exp(-emergence_rate)
 
   # egg laying rate linear in time
-  egg_laying_rate <- efd[t] * timestep
+  egg_laying_rate <- efd[t, ] * timestep
 
   # iterate the states
 
@@ -172,6 +172,94 @@ simulate_population <- function(
   dplyr::tibble(
     aquatic = aquatic_states[keep_index],
     adult = adult_states[keep_index]
+  )
+
+}
+
+# Vectorised (across pixels) version of simulate_population().
+
+# Given a time-by-pixel matrices of the hourly values of each of the lifehistory
+# parameters used to model population dynamics (larval habitat area, mdr, efd,
+# das_zerodensity, ds), the das_densmod function (to modify daily aquatic
+# survival from the zero-density condition to model density-dependent survival),
+# the initial numbers of adult and aquatic stages (defaulting to 100 each), and
+# a number of years of burnin (defaulting to 1), compute a timeseries of
+# population sizes for each stage, and return in a list (one element per life
+# stage) of time-by-pixel matrices.
+simulate_population_vectorised <- function(
+  larval_habitat_area_matrix,
+  mdr_matrix,
+  efd_matrix,
+  das_zerodensity_matrix,
+  ds_matrix,
+  das_densmod_function,
+  initial_adult = 100,
+  initial_aquatic = 100,
+  burnin_years = 1
+) {
+
+  # add whole year of burnin
+  n_times_obs <- nrow(larval_habitat_area_matrix)
+  n_times_year <- 365 * 24
+  first_year_index <- seq_len(n_times_year)
+  timeseries_index <- seq_len(n_times_obs)
+  index <- c(rep(first_year_index, burnin_years),
+             timeseries_index)
+
+  # get other dimensions
+  n_pixels <- ncol(larval_habitat_area_matrix)
+  n_times_sim <- length(index)
+
+  # pull out timeseries needed for simulating populations
+  larval_habitat_area <- larval_habitat_area_matrix[index, ]
+  mdr <- mdr_matrix[index, ]
+  efd <- efd_matrix[index, ]
+  das_zerodensity <- das_zerodensity_matrix[index, ]
+  ds <- ds_matrix[index, ]
+
+  # matrices for tracking
+
+  adult_states <- matrix(data = NA,
+                         nrow = n_times_sim,
+                         ncol = n_pixels)
+  aquatic_states <- matrix(data = NA,
+                           nrow = n_times_sim,
+                           ncol = n_pixels)
+
+  # current state
+  state <- list(
+    adult = rep(initial_adult, n_pixels),
+    aquatic = rep(initial_aquatic, n_pixels)
+  )
+
+  # pass in the daily aquatic survival density modification function, as it is
+  # the only one that is dynamic (depends on the previous state, so introduces
+  # density dependence)
+  for (t in seq_len(n_times_sim)) {
+    # update the state
+    state <- iterate_state(
+      state = state,
+      t = t,
+      das_densmod_function = das_densmod_function,
+      larval_habitat_area = larval_habitat_area,
+      mdr = mdr,
+      efd = efd,
+      das_zerodensity = das_zerodensity,
+      ds = ds
+    )
+
+    # track the recent states
+    aquatic_states[t, ] <- state$aquatic
+    adult_states[t, ] <- state$adult
+  }
+
+  # keep only the final year (post burnin)
+  keep_index <- tail(seq_along(index), n_times_obs)
+
+  # and return the vectors, discarding the burnin
+  list(
+    aquatic = aquatic_states[keep_index, ],
+    adult = adult_states[keep_index, ]
   )
 
 }

@@ -100,7 +100,7 @@ download_time <- system.time(
 # subset this for now for testing
 pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
   dplyr::slice_head(
-    n = 10
+    n = 30
   )
 
 # # convert terracliamte data into monthly variables needed for microclimate
@@ -226,23 +226,6 @@ pixel_monthly_vector$pixel_vectors[[1]] |>
   ) +
   geom_line() +
   theme_minimal()
-
-
-
-# vectorise water simulation
-
-pixel_hourly_microclimate <- pixel_terraclimate_data_sub |>
-  terraclimate_to_monthly_climate() |>
-  interpolate_daily_climate() |>
-  simulate_hourly_microclimate()
-
-pixel_hourly_conditions <- simulate_hourly_conditions(
-  pixel_hourly_microclimate,
-  model_water_temperature = FALSE,
-  water_shade_proportion = 1
-)
-
-head(variable_list$water_temperature)
 
 
 
