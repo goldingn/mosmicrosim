@@ -277,35 +277,201 @@ simulate_hourly_conditions <- function(
          call. = FALSE)
   }
 
-  pixel_hourly_microclimate |>
+  # the climate variables we care about for modelling water, or for modelling
+  # mosquito lifehistory parameters later
+  climate_vars <- c(
+    "rainfall",
+    "air_temperature",
+    "water_temperature",
+    "humidity",
+    "windspeed"
+  )
+
+  # add a pixel index to the hourly microclimate data
+  data_with_pixel <- pixel_hourly_microclimate |>
+    dplyr::mutate(
+      pixel_index = dplyr::row_number(),
+      .before = everything()
+    )
+
+  # get a lookup from this to the pixel info, so we can add the info back later
+  pixel_info <- data_with_pixel |>
+    dplyr::select(
+      -hourly_microclimate
+    )
+
+  # create a lookup between a time index and the dates and htimes
+  times_info <- data_with_pixel$hourly_microclimate[[1]] |>
+    dplyr::select(
+      date,
+      hour
+    ) |>
+    dplyr::mutate(
+      time_index = dplyr::row_number(),
+      .before = everything()
+    )
+
+  # create a grouped (by variable) tibble of values per variable, pixel, and time
+  variables <- data_with_pixel |>
+    # drop unneeded pixel info (to prevent duplication and memory clog)
+    dplyr::select(
+      pixel_index,
+      hourly_microclimate
+    ) |>
+    # unnest the microclimate data and add on the time index
+    tidyr::unnest(
+      hourly_microclimate
+    ) |>
+    dplyr::left_join(
+      times_info,
+      by = c("date", "hour")
+    ) |>
+    # drop unneeded time and climate info (to prevent duplication and memory clog)
+    dplyr::select(
+      all_of(
+        c("pixel_index",
+          "time_index",
+          climate_vars)
+      )
+    ) |>
+    # convert to long format
+    tidyr::pivot_longer(
+      cols = all_of(climate_vars),
+      names_to = "variable",
+      values_to = "value"
+    ) |>
+    dplyr::relocate(
+      variable,
+      .before = everything()
+    ) |>
+    # group by variable, so we can turn into a named list of matrices next
     dplyr::group_by(
-      longitude,
-      latitude,
+      variable
+    )
+
+  # names of the variables
+  variable_names <- dplyr::group_keys(variables)$variable
+
+  # create a named list with each element containing a time-by-pixel matrix of the
+  # values of each of the different microclimate variables used for modelling
+  # water
+  variable_list <- variables |>
+    dplyr::group_split(
+      .keep = FALSE
+    ) |>
+    setNames(
+      variable_names
+    ) |>
+    lapply(
+      function(variable_tbl) {
+        variable_tbl |>
+          tidyr::pivot_wider(
+            names_from = pixel_index,
+            values_from = value
+          ) |>
+          dplyr::select(
+            -time_index
+          ) |>
+          as.matrix()
+      }
+    )
+
+  # now run vectorised ephemeral habitat simulation to return a named list with
+  # time-by-pixel matrices of water_surface_area and water_temperature
+
+  water_list <- simulate_ephemeral_habitat_vectorised(
+    rainfall_matrix = variable_list$rainfall,
+    air_temperature_matrix = variable_list$air_temperature,
+    humidity_matrix = variable_list$humidity,
+    windspeed_matrix = variable_list$windspeed,
+    altitude_vector = pixel_info$altitude,
+    initial_volume = 0,
+    burnin_years = 0,
+    max_cone_depth = 1,
+    inflow_multiplier = 1
+  )
+
+
+  # combine this list with the microclimate information that is needed for
+  # modelling mosquito lifehistory parameters
+  final_list <- c(variable_list,
+                  water_list)
+
+  # now convert this list of pixel-by-time condition information back into a
+  # tibble with a list column of conditions per pixel (with time info added back
+  # on), and add back on the pixel info
+  final_list |>
+    lapply(
+      function(matrix) {
+        # convert matrix to tidy format tibble with indices
+        n_pixels <- ncol(matrix)
+        matrix |>
+          `colnames<-`(
+            seq_len(n_pixels)
+          ) |>
+          dplyr::as_tibble() |>
+          dplyr::mutate(
+            time_index = dplyr::row_number(),
+            .before = everything()
+          ) |>
+          tidyr::pivot_longer(
+            cols = !any_of("time_index"),
+            names_to = "pixel_index",
+            values_to = "value"
+          ) |>
+          dplyr::mutate(
+            pixel_index = as.numeric(pixel_index)
+          )
+      }
+    ) |>
+    # combine them, adding the variable names
+    dplyr::bind_rows(
+      .id = "variable"
+    ) |>
+    # make wide again
+    tidyr::pivot_wider(
+      names_from = variable,
+      values_from = value
+    ) |>
+    # add on the time information and drop the index
+    dplyr::left_join(
+      times_info,
+      by = "time_index"
+    ) |>
+    dplyr::select(
+      -time_index
+    ) |>
+    # turn the useful conditions information (not rainfall or windspeed) into a
+    # list column
+    dplyr::group_by(
+      pixel_index
     ) |>
     dplyr::summarise(
       hourly_conditions = list(
         dplyr::tibble(
-          # drop some conditions that don't directly affect vectors, but keep
-          # the rest
-          dplyr::select(
-            hourly_microclimate[[1]],
-            -cloudcover,
-            -windspeed,
-            -rainfall
-          ),
-          # model and add the water surface area
-          water_surface_area = simulate_ephemeral_habitat(
-            hourly_climate = hourly_microclimate[[1]],
-            altitude = altitude,
-            initial_volume = 0,
-            burnin_years = 0,
-            max_cone_depth = 1,
-            inflow_multiplier = 1
-          )
+          date,
+          hour,
+          water_surface_area,
+          air_temperature,
+          humidity,
+          water_temperature
         )
       ),
       .groups = "drop"
+    ) |>
+    # now add back on the pixel information
+    dplyr::left_join(
+      pixel_info,
+      by = "pixel_index"
+    ) |>
+    dplyr::relocate(
+      hourly_conditions,
+      .after = everything()
+    ) |>
+    dplyr::select(
+      -pixel_index
     )
+
 }
 
 # then run the following on the whole tibble:

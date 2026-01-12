@@ -100,7 +100,7 @@ download_time <- system.time(
 # subset this for now for testing
 pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
   dplyr::slice_head(
-    n = 2
+    n = 10
   )
 
 # # convert terracliamte data into monthly variables needed for microclimate
@@ -153,9 +153,8 @@ pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
 
 # profvis::profvis(rerun = TRUE, expr = {
 process_time <- system.time(expr = {
-  # process these variables for input to NicheMapR
 
-  pixel_monthly_vector <- pixel_terraclimate_data_sub|>
+  pixel_monthly_vector <- pixel_terraclimate_data_sub |>
     # convert terraclimate data into monthly variables needed for microclimate
     # modelling
     terraclimate_to_monthly_climate() |>
@@ -208,7 +207,8 @@ hours / 24
 # 1.23s for a single pixel for ambient microclimate and water volume, so 14-6
 # hours processing time on a 64 core machine for ambient microclimate only
 
-# this with population simulation, no speedups
+# this with ambient microclimate and with population simulation, no speedups:
+# 63h!
 seconds_per_pixel <- process_time["elapsed"] / n_pixels
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours
@@ -229,12 +229,33 @@ pixel_monthly_vector$pixel_vectors[[1]] |>
 
 
 
+# vectorise water simulation
+
+pixel_hourly_microclimate <- pixel_terraclimate_data_sub |>
+  terraclimate_to_monthly_climate() |>
+  interpolate_daily_climate() |>
+  simulate_hourly_microclimate()
+
+pixel_hourly_conditions <- simulate_hourly_conditions(
+  pixel_hourly_microclimate,
+  model_water_temperature = FALSE,
+  water_shade_proportion = 1
+)
+
+head(variable_list$water_temperature)
+
+
+
+
 # to do:
 
 # vectorise the water and population simulations to batch process multiple
 # pixels at once, in matrix formats (add ID for location, unnest, convert into a
 # series of matrices, iterate through time on those matrices solving multiple
 # locations simultaneously)
+
+# set up parallelisation across blocks of pixels in a tile (split into n_cores
+# groups, and parallel compute the water conditions and the population dynamics)
 
 # amend water simulation to take a shade proportion argument (fixed to 1 for
 # now) and solve for water temperature in dynamics, under full shade (no solar
