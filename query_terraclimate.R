@@ -100,7 +100,7 @@ download_time <- system.time(
 # subset this for now for testing
 pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
   dplyr::slice_head(
-    n = 30
+    n = 10
   )
 
 # profvis::profvis(rerun = TRUE, expr = {
@@ -133,13 +133,35 @@ process_time <- system.time(expr = {
 
 })
 
-# for 30 pixels, ~39s
+# with 30 pixels:
+# spline_seasonal took 4s
+# interpolate_daily took 1s
+# simulate_hourly_conditions took 3s
+# lifehistory took 5s - mostly in ds_temp_humid
+# simulate population took 4s
+# summarising took 1s
 
-# 12s simulate_hourly_vectors
-#   5s pivot_wider
-# 10s simulate_hourly_conditions
-#   4s pivot_wider
-# 10s predict.gam (in ds_temp_humid)
+# ds_temp_humid took 3.4s (almost all predict.gam), so speed this up
+
+# after exploring, it seems that this cannot be sped up by either
+# block-predicitng for multiple pixles, nor by setting the argument
+# newdata.guaranteed = TRUE in predict.gam(), so this is presumably an expensive
+# compute function. the best way to speed this up will be bu 2D linear
+# interpolation:
+
+# either when defining functions or in data-raw, pre-compute values on a grid,
+# and set up a function to do vectorised bilinear interpolation on demand. This
+# should be much faster.
+
+
+
+# in simulate_hourly_conditions and simulate_hourly_vectors, ~0.8s each was
+# spent on the lapply'd pivot_wider after group_split-ting the input variables -
+# can improve this?
+
+# pivot_wider first and then do group_split in the variables afterwards?
+
+
 
 
 # after speeding up with dtplyr version of pivot_wider:
