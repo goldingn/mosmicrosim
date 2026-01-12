@@ -231,25 +231,6 @@ pixel_monthly_vector$pixel_vectors[[1]] |>
 
 # to do:
 
-# tidy up processing functions
-# DONE
-
-#   streamline processing of terraclimate data
-#   DONE
-
-#   add single processing function to model aquatic habitat (water surface area
-#   and later water temperature) and add it directly to hourly_simulation in
-#   tibbles, across multiple sites
-#   DONE
-
-#   add single processing function to model mosquito population sizes and add it
-#   directly to hourly_simulation in tibbles, across multiple sites (as above)
-#   DONE
-
-#   add processing functions to summarise mosquito populations and possibly other
-#   parameters (e.g. aquatic conditions) daily and monthly
-#   DONE
-
 # vectorise the water and population simulations to batch process multiple
 # pixels at once, in matrix formats (add ID for location, unnest, convert into a
 # series of matrices, iterate through time on those matrices solving multiple
@@ -262,113 +243,6 @@ pixel_monthly_vector$pixel_vectors[[1]] |>
 # implement water temperature simulation with 0 <= shade <= 1, by computing
 # solar gain from cloud cover, GADS, etc.
 
-
-
-# new interface:
-
-# # make the tiles
-#   tiles <- make_tiles(tc_template, target_n_tiles = 100)
-
-# returns a tibble with acolumn of tile numbers and a list-column of extents
-
-# then loop across the tiles in this, probably not in a pipe, but a
-# for-loop saving results, or split across machines
-
-# for each row of that tibble (a tile, with a tile number and extent), run:
-#   terraclimate_data <- extract_terraclimate_tile(extent, dates)
-# to return a tibble of pixels, with latitude, longitude, and a
-# list-column of the monthly terraclimate variables extracted
-
-# then, run the following on the whole tibble:
-#   monthly_climate <- terraclimate_to_monthly_climate(terraclimate_data)
-# to return a per-pixel tibble with: latitude, longitude, *altitude*, and
-# list-column of tibbles with the monthly climate data
-
-# then run the following on the whole tibble:
-#   daily_climate <- interpolate_daily_climate(monthly_climate)
-# to return a per-pixel tibble with: latitude, longitude, altitude, and
-# list-column of tibbles with the daily climate data
-
-# then run the following on the whole tibble:
-#   hourly_microclimate <- simulate_hourly_microclimate(daily_climate)
-# to return a per-pixel tibble with: latitude, longitude, altitude, and
-# list-column of tibbles with the hourly microclimate data (not including water
-# temperature)
-
-# then run the following on the whole tibble:
-#   hourly_conditions <- simulate_hourly_conditions(
-#     hourly_microclimate,
-#     model_water_temperature = FALSE,
-#     water_shade_proportion = 1
-#   )
-# to return a per-pixel tibble with: latitude, longitude, (*not altitude*), and
-# list-column of tibbles with the hourly condition data, including microclimate
-# (air), water surface area, and water temperature (altitude is needed to model
-# evaporation). At first, fix model_water_temperature = FALSE and just copy the
-# air temperature, then when we implement a basic model of water temperature, at
-# first fix water_shade_proportion = 1 and ignore solar gain in water bodies,
-# then later implement the water temperature model with solar gain, and with
-# clearsky radiation multiplied by (1 - water_shade_proportion) * (1 -
-# cloud_cover)
-
-# then run the following on the whole tibble: hourly_lifehistory <-
-# simulate_hourly_lifehistory( hourly_conditions, species = "An. gambiae" ) to
-# return a per-pixel tibble with: latitude, longitude, and list-column of
-# tibbles with the hourly lifehistory and water surface area simulations, and
-# the species name
-
-# then run the following on the whole tibble:
-#   hourly_vectors <- simulate_hourly_vectors(hourly_lifehistory)
-# to return a per-pixel tibble with: latitude, longitude, and list-column of
-# tibbles with the hourly vector information (number of adults, number of
-# aquatics, and the lifehistory parameters, water surface area simulations and
-# the species name)
-
-# then run the following on the whole tibble:
-#   daily_vectors <- summarise_daily_vectors(hourly_vectors)
-# to return a per-pixel tibble with: latitude, longitude, and list-column of
-# tibbles with the daily vector information (average number of adults, average
-# number of aquatics, average lifehistory parameters and water surface areas and
-# the species name)
-
-# then run the following on the whole tibble:
-#   monthly_vectors <- summarise_daily_vectors(daily_vectors)
-# to return a per-pixel tibble with: latitude, longitude, and list-column of
-# tibbles with the monthly vector information (average number of adults, average
-# number of aquatics, average lifehistory parameters and water surface areas and
-# the species name)
-
-
-# to do:
-
-# change make_tiles() to return a tibble with a list-column of extents, like
-# this:
-# tiles |>
-#   dplyr::as_tibble() |>
-#   dplyr::rowwise() |>
-#   dplyr::summarise(
-#     extent = list(
-#       c(xmin, xmax, ymin, ymax)
-#     ),
-#     .groups = "drop"
-#   ) |>
-#   dplyr::mutate(
-#     tile = dplyr::row_number(),
-#     .before = everything()
-#   )
-
-
-# append altitude information inside terraclimate_to_monthly_climate
-  # dplyr::mutate(
-  #   altitude = altitude_m(
-  #     longitude = longitude,
-  #     latitude = latitude,
-  #     altitude_raster = tc_elevation
-  #   ),
-  #   .before = monthly_climate
-  # )
-
-# implement all of these pipeline functions
 
 
 
