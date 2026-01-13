@@ -317,6 +317,10 @@ simulate_hourly_conditions <- function(
     "windspeed"
   )
 
+  # dimensions of things
+  n_pixels <- nrow(pixel_hourly_microclimate)
+  n_times <- nrow(pixel_hourly_microclimate$hourly_microclimate[[1]])
+
   # add a pixel index to the hourly microclimate data
   data_with_pixel <- pixel_hourly_microclimate |>
     dplyr::mutate(
@@ -341,8 +345,8 @@ simulate_hourly_conditions <- function(
       .before = everything()
     )
 
-  # create a grouped (by variable) tibble of values per variable, pixel, and time
-  variables <- data_with_pixel |>
+  # subset to wide format with only the pixel/time indices
+  variables_sub <- data_with_pixel |>
     # drop unneeded pixel info (to prevent duplication and memory clog)
     dplyr::select(
       pixel_index,
@@ -363,48 +367,34 @@ simulate_hourly_conditions <- function(
           "time_index",
           climate_vars)
       )
-    ) |>
-    # convert to long format
-    tidyr::pivot_longer(
-      cols = all_of(climate_vars),
-      names_to = "variable",
-      values_to = "value"
-    ) |>
-    dplyr::relocate(
-      variable,
-      .before = everything()
-    ) |>
-    # group by variable, so we can turn into a named list of matrices next
-    dplyr::group_by(
-      variable
     )
 
-  # names of the variables
-  variable_names <- dplyr::group_keys(variables)$variable
+  # create a named list of time-by-pixel matrices of the values of each variable
+  variable_list <- lapply(climate_vars,
+                          function(var_name) {
+                            variables_sub |>
+                              dplyr::select(
+                                pixel_index,
+                                time_index,
+                                !!var_name
+                              ) |>
+                              # force arrangement in the right order
+                              dplyr::arrange(
+                                pixel_index,
+                                time_index
+                              ) |>
+                              dplyr::pull(
+                                !!var_name
+                              ) |>
+                              matrix(
+                                nrow = n_times,
+                                ncol = n_pixels
+                              )
+                          })
+  names(variable_list) <- climate_vars
 
-  # create a named list with each element containing a time-by-pixel matrix of the
-  # values of each of the different microclimate variables used for modelling
-  # water
-  variable_list <- variables |>
-    dplyr::group_split(
-      .keep = FALSE
-    ) |>
-    setNames(
-      variable_names
-    ) |>
-    lapply(
-      function(variable_tbl) {
-        variable_tbl |>
-          tidyr::pivot_wider(
-            names_from = pixel_index,
-            values_from = value
-          ) |>
-          dplyr::select(
-            -time_index
-          ) |>
-          as.matrix()
-      }
-    )
+  # NOTE: this is inelegant. The code previously did a pivot longer, grouped,
+  # did a group_split, and then pivoted wider, but that was much slower
 
   # now run vectorised ephemeral habitat simulation to return a named list with
   # time-by-pixel matrices of water_surface_area and water_temperature
@@ -611,9 +601,20 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
       .before = everything()
     )
 
-  # create a grouped (by lifehistory parameter) tibble of values per parameter,
-  # pixel, and time
-  parameters <- data_with_pixel |>
+  parameter_names <- c(
+    "mdr",
+    "efd",
+    "das_zerodensity",
+    "ds",
+    "larval_habitat_area"
+  )
+
+  # dimensions of things
+  n_pixels <- nrow(pixel_hourly_lifehistory)
+  n_times <- nrow(pixel_hourly_lifehistory$hourly_lifehistory[[1]])
+  
+  # subset to wide format with only the pixel/time indices
+  parameters_sub <- data_with_pixel |>
     # drop unneeded pixel info (to prevent duplication and memory clog)
     dplyr::select(
       pixel_index,
@@ -629,50 +630,104 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
     ) |>
     # drop unneeded time and climate info (to prevent duplication and memory clog)
     dplyr::select(
-      -date,
-      -hour
-    ) |>
-    # convert to long format
-    tidyr::pivot_longer(
-      cols = !any_of(c("pixel_index", "time_index")),
-      names_to = "parameter",
-      values_to = "value"
-    ) |>
-    dplyr::relocate(
-      parameter,
-      .before = everything()
-    ) |>
-    # group by parameter, so we can turn into a named list of matrices next
-    dplyr::group_by(
-      parameter
+      all_of(
+        c("pixel_index",
+          "time_index",
+          parameter_names)
+      )
     )
 
-  # names of the variables
-  parameter_names <- dplyr::group_keys(parameters)$parameter
+  # create a named list of time-by-pixel matrices of the values of each
+  # parameter
+  parameter_list <- lapply(parameter_names,
+                          function(param_name) {
+                            parameters_sub |>
+                              dplyr::select(
+                                pixel_index,
+                                time_index,
+                                !!param_name
+                              ) |>
+                              # force arrangement in the right order
+                              dplyr::arrange(
+                                pixel_index,
+                                time_index
+                              ) |>
+                              dplyr::pull(
+                                !!param_name
+                              ) |>
+                              matrix(
+                                nrow = n_times,
+                                ncol = n_pixels
+                              )
+                          })
+  names(parameter_list) <- parameter_names
 
-  # create a named list with each element containing a time-by-pixel matrix of the
-  # values of each of the different microclimate variables used for modelling
-  # water
-  parameter_list <- parameters |>
-    dplyr::group_split(
-      .keep = FALSE
-    ) |>
-    setNames(
-      parameter_names
-    ) |>
-    lapply(
-      function(parameter_tbl) {
-        parameter_tbl |>
-          tidyr::pivot_wider(
-            names_from = pixel_index,
-            values_from = value
-          ) |>
-          dplyr::select(
-            -time_index
-          ) |>
-          as.matrix()
-      }
-    )
+  # NOTE: this is inelegant. The code previously did a pivot longer, grouped,
+  # did a group_split, and then pivoted wider, but that was much slower
+
+
+  # # create a grouped (by lifehistory parameter) tibble of values per parameter,
+  # # pixel, and time
+  # parameters <- data_with_pixel |>
+  #   # drop unneeded pixel info (to prevent duplication and memory clog)
+  #   dplyr::select(
+  #     pixel_index,
+  #     hourly_lifehistory
+  #   ) |>
+  #   # unnest the lifehistory data and add on the time index
+  #   tidyr::unnest(
+  #     hourly_lifehistory
+  #   ) |>
+  #   dplyr::left_join(
+  #     times_info,
+  #     by = c("date", "hour")
+  #   ) |>
+  #   # drop unneeded time and climate info (to prevent duplication and memory clog)
+  #   dplyr::select(
+  #     -date,
+  #     -hour
+  #   ) |>
+  #   # convert to long format
+  #   tidyr::pivot_longer(
+  #     cols = !any_of(c("pixel_index", "time_index")),
+  #     names_to = "parameter",
+  #     values_to = "value"
+  #   ) |>
+  #   dplyr::relocate(
+  #     parameter,
+  #     .before = everything()
+  #   ) |>
+  #   # group by parameter, so we can turn into a named list of matrices next
+  #   dplyr::group_by(
+  #     parameter
+  #   )
+  #
+  # # names of the variables
+  # parameter_names <- dplyr::group_keys(parameters)$parameter
+  #
+  # # create a named list with each element containing a time-by-pixel matrix of the
+  # # values of each of the different microclimate variables used for modelling
+  # # water
+  # parameter_list <- parameters |>
+  #   dplyr::group_split(
+  #     .keep = FALSE
+  #   ) |>
+  #   setNames(
+  #     parameter_names
+  #   ) |>
+  #   lapply(
+  #     function(parameter_tbl) {
+  #       parameter_tbl |>
+  #         tidyr::pivot_wider(
+  #           names_from = pixel_index,
+  #           values_from = value
+  #         ) |>
+  #         dplyr::select(
+  #           -time_index
+  #         ) |>
+  #         as.matrix()
+  #     }
+  #   )
 
   # now run vectorised population simulation to return a named list with
   # time-by-pixel matrices of adult and aquatic population sizes

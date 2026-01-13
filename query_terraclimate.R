@@ -100,11 +100,11 @@ download_time <- system.time(
 # subset this for now for testing
 pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
   dplyr::slice_head(
-    n = 30
+    n = 10
   )
 
-# profvis::profvis(rerun = TRUE, expr = {
-process_time <- system.time(expr = {
+profvis::profvis(rerun = TRUE, expr = {
+# process_time <- system.time(expr = {
 
   pixel_monthly_vector <- pixel_terraclimate_data_sub |>
     # convert terraclimate data into monthly variables needed for microclimate
@@ -134,6 +134,9 @@ process_time <- system.time(expr = {
 })
 
 # so there is a considerable overhead in using dplyr to move things around
+
+# now convert lapply'd pivot_longer calls to base R conversion of matrices to
+# vectors and add the pixel and time indices back in the previous dimensions
 
 # with 10 pixels, still 12.5s (with profvis running), the first 3.5s are spent
 # splining from monthly to daily data things with GAMs, to account for
@@ -188,7 +191,7 @@ hours / 24
 # hours processing time on a 64 core machine for ambient microclimate only
 
 # with ambient microclimate and population simulation, latest speedups, on a 64
-# core machine 14h processing time
+# core machine: 14h processing time
 seconds_per_pixel <- process_time["elapsed"] / n_pixels
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours
