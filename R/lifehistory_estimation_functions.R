@@ -1138,3 +1138,54 @@ make_surv_temp_humid_function <- function(adult_mortality_model,
   }
 
 }
+
+# given a function of temperature and humidity, return a new function to emulate
+# this by bilinear interpolation, at a much lower computational cost.
+make_temp_humid_interpolator <- function(original_function,
+                                         temperature_limits = c(0, 45),
+                                         humidity_limits = c(0, 100),
+                                         grid_resolution = 250) {
+
+  # set up the grid
+  temperature_steps <- seq(temperature_limits[1],
+                           temperature_limits[2],
+                           length.out = grid_resolution)
+  humidity_steps <- seq(humidity_limits[1],
+                        humidity_limits[2],
+                        length.out = grid_resolution)
+  interpolation_grid <- expand.grid(
+    temperature = temperature_steps,
+    humidity = humidity_steps
+  )
+
+  # populate the values
+  interpolation_grid$value <- original_function(
+    temperature = interpolation_grid$temperature,
+    humidity = interpolation_grid$humidity
+  )
+
+  # convert the values to a matrix
+  value_matrix <- matrix(interpolation_grid$value,
+                         nrow = grid_resolution,
+                         ncol = grid_resolution)
+
+  # create the list of. interpolation information needed by
+  # fields::interp.surface()
+  interpolation_info <- list(
+    x = temperature_steps,
+    y = humidity_steps,
+    z = value_matrix
+  )
+
+  # make and return the function
+  new_function <- function(temperature, humidity) {
+    fields::interp.surface(
+      interpolation_info,
+      cbind(temperature, humidity)
+    )
+  }
+
+  new_function
+
+}
+

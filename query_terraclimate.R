@@ -100,7 +100,7 @@ download_time <- system.time(
 # subset this for now for testing
 pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
   dplyr::slice_head(
-    n = 10
+    n = 30
   )
 
 # profvis::profvis(rerun = TRUE, expr = {
@@ -133,6 +133,15 @@ process_time <- system.time(expr = {
 
 })
 
+# so there is a considerable overhead in using dplyr to move things around
+
+# with 10 pixels, still 12.5s (with profvis running), the first 3.5s are spent
+# splining from monthly to daily data things with GAMs, to account for
+# seasonality, 3.5-4.5s (1s) on hourly interpolation from daily, after 4.5-7.5s
+# (3s), onto simulate hourly conditions, which has a full second of pivot_longer
+# and pivot_wider, then the simulation, then repeat pivot_longers, then same
+# again in simulalte_hourly_vectors
+
 # with 30 pixels:
 # spline_seasonal took 4s
 # interpolate_daily took 1s
@@ -141,39 +150,12 @@ process_time <- system.time(expr = {
 # simulate population took 4s
 # summarising took 1s
 
-# ds_temp_humid took 3.4s (almost all predict.gam), so speed this up
-
-# after exploring, it seems that this cannot be sped up by either
-# block-predicitng for multiple pixles, nor by setting the argument
-# newdata.guaranteed = TRUE in predict.gam(), so this is presumably an expensive
-# compute function. the best way to speed this up will be bu 2D linear
-# interpolation:
-
-# either when defining functions or in data-raw, pre-compute values on a grid,
-# and set up a function to do vectorised bilinear interpolation on demand. This
-# should be much faster.
-
-
 
 # in simulate_hourly_conditions and simulate_hourly_vectors, ~0.8s each was
 # spent on the lapply'd pivot_wider after group_split-ting the input variables -
 # can improve this?
 
 # pivot_wider first and then do group_split in the variables afterwards?
-
-
-
-
-# after speeding up with dtplyr version of pivot_wider:
-# for 30 pixels, ~66s (?!)
-# 7s simulate_hourly_vectors
-# 5s simulate_hourly_conditions
-# 10s predict.gam (in ds_temp_humid)
-# but 27s of dcast (datatable version of pivot_wider)?
-
-
-# speed up pivot_wider calls:
-# - specify id_cols to use as keys?
 
 
 
@@ -188,9 +170,7 @@ nrow(tiles) * 268  / 3600
 # processing time for this subset
 process_time["elapsed"]
 
-# 88.8s with 30 pixels & datatable
-# 70s with 30 pixels & dplyr ?!
-# 59s with 30 pixels & lapply version
+# 35s with 30s and latest speedups
 
 # number of pixels in this subset
 n_pixels <- nrow(pixel_terraclimate_data_sub)
@@ -207,11 +187,13 @@ hours / 24
 # 1.23s for a single pixel for ambient microclimate and water volume, so 14-6
 # hours processing time on a 64 core machine for ambient microclimate only
 
-# with ambient microclimate and with population simulation, on a 64 core machine
-# 24h processing time
+# with ambient microclimate and population simulation, latest speedups, on a 64
+# core machine 14h processing time
 seconds_per_pixel <- process_time["elapsed"] / n_pixels
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours
+
+
 
 
 pixel_monthly_vector$pixel_vectors[[1]] |>
@@ -232,13 +214,56 @@ pixel_monthly_vector$pixel_vectors[[1]] |>
 
 # to do:
 
-# vectorise the water and population simulations to batch process multiple
-# pixels at once, in matrix formats (add ID for location, unnest, convert into a
-# series of matrices, iterate through time on those matrices solving multiple
-# locations simultaneously)
+# optimise a few more bits of processing code
 
 # set up parallelisation across blocks of pixels in a tile (split into n_cores
 # groups, and parallel compute the water conditions and the population dynamics)
+
+
+# library(tidyverse)
+
+# set up parallel batch processing of sets of pixels
+
+# # something like this:
+# tbl <- dplyr::tibble(
+#   latitude = 1:10,
+#   longitude = 1:10,
+#   hourly_microclimate = list(
+#     dplyr::tibble(
+#       date = Sys.Date(),
+#       hour = 1:24,
+#       x = runif(24)
+#     )
+#   )
+# )
+# library(furrr)
+# ?furrr
+# plan(multisession(workers = 4))
+#
+# inner_fun <- function(hourly_microclimate) {
+#   hourly_microclimate |>
+#     dplyr::mutate(
+#       y = x ^ 2
+#     )
+# }
+# run <- function(tbl) {
+#   lapply(tbl$hourly_microclimate,
+#          inner_fun)
+# }
+#
+# tbl |>
+#   # add batch variable
+#   dplyr::mutate(
+#     batch = ceiling(n_batches * seq_len(n()) / n()),
+#     .before = everything()
+#   ) |>
+#   dplyr::group_by(
+#     batch
+#   ) |>
+#   tidyr::nest() |>
+#   purrr::map(data, run)
+
+
 
 # amend water simulation to take a shade proportion argument (fixed to 1 for
 # now) and solve for water temperature in dynamics, under full shade (no solar

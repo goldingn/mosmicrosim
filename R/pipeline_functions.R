@@ -512,10 +512,14 @@ simulate_hourly_conditions <- function(
   # )
 # to return a per-pixel tibble with: latitude, longitude, and list-column of
 # tibbles with the hourly lifehistory and water surface area simulations, and
-# the species name
+# the species name. If fast_ds_temp_humid = TRUE (the default) then the
+# ds_temp_humid() function for that species (daily adult survival as a fucntion
+# of temperature and humidity) is replaced with a much faster but still very
+# accurate bilinear interpolation function
 simulate_hourly_lifehistory <- function(
   pixel_hourly_conditions,
-  species = c("An. gambiae", "An. stephensi")
+  species = c("An. gambiae", "An. stephensi"),
+  fast_ds_temp_humid = TRUE
 ) {
   species <- match.arg(species)
 
@@ -524,6 +528,15 @@ simulate_hourly_lifehistory <- function(
     "An. gambiae" = lifehistory_functions$An_gambiae,
     "An. stephensi" = lifehistory_functions$An_stephensi
   )
+
+  # optionally replace the ds_temp_humid function with a much faster emulator
+  # (bilinear interpolation)
+  if (fast_ds_temp_humid) {
+    lifehistory$ds_temp_humid <- make_temp_humid_interpolator(
+      lifehistory$ds_temp_humid
+    )
+  }
+
 
   pixel_hourly_conditions |>
     dplyr::mutate(
@@ -650,7 +663,6 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
     lapply(
       function(parameter_tbl) {
         parameter_tbl |>
-          # do the pivot_wider with data.table, via dtplyr, then coerce back
           tidyr::pivot_wider(
             names_from = pixel_index,
             values_from = value
