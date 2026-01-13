@@ -491,7 +491,8 @@ clean_tile_data <- function(tile_data, tc_template) {
   # subset to these
   valid_coords |>
     dplyr::left_join(
-      tile_data
+      tile_data,
+      by = c("longitude", "latitude")
     )
 
 }
