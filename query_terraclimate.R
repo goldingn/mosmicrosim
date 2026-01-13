@@ -100,11 +100,11 @@ download_time <- system.time(
 # subset this for now for testing
 pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
   dplyr::slice_head(
-    n = 10
+    n = 100
   )
 
-profvis::profvis(rerun = TRUE, expr = {
-# process_time <- system.time(expr = {
+# profvis::profvis(rerun = TRUE, expr = {
+process_time <- system.time(expr = {
 
   pixel_monthly_vector <- pixel_terraclimate_data_sub |>
     # convert terraclimate data into monthly variables needed for microclimate
@@ -133,33 +133,9 @@ profvis::profvis(rerun = TRUE, expr = {
 
 })
 
-# so there is a considerable overhead in using dplyr to move things around
+# 8.5s for 10 pixels
 
-# now convert lapply'd pivot_longer calls to base R conversion of matrices to
-# vectors and add the pixel and time indices back in the previous dimensions
-
-# with 10 pixels, still 12.5s (with profvis running), the first 3.5s are spent
-# splining from monthly to daily data things with GAMs, to account for
-# seasonality, 3.5-4.5s (1s) on hourly interpolation from daily, after 4.5-7.5s
-# (3s), onto simulate hourly conditions, which has a full second of pivot_longer
-# and pivot_wider, then the simulation, then repeat pivot_longers, then same
-# again in simulalte_hourly_vectors
-
-# with 30 pixels:
-# spline_seasonal took 4s
-# interpolate_daily took 1s
-# simulate_hourly_conditions took 3s
-# lifehistory took 5s - mostly in ds_temp_humid
-# simulate population took 4s
-# summarising took 1s
-
-
-# in simulate_hourly_conditions and simulate_hourly_vectors, ~0.8s each was
-# spent on the lapply'd pivot_wider after group_split-ting the input variables -
-# can improve this?
-
-# pivot_wider first and then do group_split in the variables afterwards?
-
+# most overhead is the predict.gam call in spline_seasonal()
 
 
 # download time ~65s for a small tile (tile 1, ~2.4 square degrees) and ~268s
@@ -191,12 +167,10 @@ hours / 24
 # hours processing time on a 64 core machine for ambient microclimate only
 
 # with ambient microclimate and population simulation, latest speedups, on a 64
-# core machine: 14h processing time
+# core machine: 10.5h processing time
 seconds_per_pixel <- process_time["elapsed"] / n_pixels
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours
-
-
 
 
 pixel_monthly_vector$pixel_vectors[[1]] |>

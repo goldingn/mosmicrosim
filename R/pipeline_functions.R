@@ -398,7 +398,6 @@ simulate_hourly_conditions <- function(
 
   # now run vectorised ephemeral habitat simulation to return a named list with
   # time-by-pixel matrices of water_surface_area and water_temperature
-
   water_list <- simulate_ephemeral_habitat_vectorised(
     rainfall_matrix = variable_list$rainfall,
     air_temperature_matrix = variable_list$air_temperature,
@@ -411,16 +410,10 @@ simulate_hourly_conditions <- function(
     inflow_multiplier = 1
   )
 
-
-  # combine this list with the microclimate information that is needed for
-  # modelling mosquito lifehistory parameters
-  final_list <- c(variable_list,
-                  water_list)
-
   # now convert this list of pixel-by-time condition information back into a
-  # tibble with a list column of conditions per pixel (with time info added back
-  # on), and add back on the pixel info
-  final_list |>
+  # tibble with a list column of water conditions per pixel, with just the pixel
+  # and time indices
+  water_sub <- water_list |>
     lapply(
       function(matrix) {
         # convert matrix to tidy format tibble with indices
@@ -446,14 +439,26 @@ simulate_hourly_conditions <- function(
     ) |>
     # stack these side by side (with lapply - much faster than bind_rows and
     # pivot_wider)
-    recombine_variables() |>
-#     dplyr::bind_rows(
-#       .id = "variable"
-#     ) |>
-#     tidyr::pivot_wider(
-#       names_from = variable,
-#       values_from = value
-#     ) |>
+    recombine_variables()
+
+  # drop index information to recombine this with the microclimate information
+  # (faster than left_join)
+  water_sub_noindex <- water_sub |>
+    dplyr::select(
+      -time_index,
+      -pixel_index
+    )
+
+  # recombine with the microclimate variables, add time information, nest by
+  # pixel, and add back on the pixel information
+  variables_sub |>
+    dplyr::bind_cols(
+      water_sub_noindex
+    ) |>
+    # dplyr::left_join(
+    #   water_sub,
+    #   by = c("time_index", "pixel_index")
+    # ) |>
     # add on the time information and drop the index
     dplyr::left_join(
       times_info,
@@ -492,6 +497,87 @@ simulate_hourly_conditions <- function(
     dplyr::select(
       -pixel_index
     )
+
+#   # combine this list with the microclimate information that is needed for
+#   # modelling mosquito lifehistory parameters
+#   final_list <- c(variable_list,
+#                   water_list)
+#
+#   # now convert this list of pixel-by-time condition information back into a
+#   # tibble with a list column of conditions per pixel (with time info added back
+#   # on), and add back on the pixel info
+#   final_list |>
+#     lapply(
+#       function(matrix) {
+#         # convert matrix to tidy format tibble with indices
+#         n_pixels <- ncol(matrix)
+#         matrix |>
+#           `colnames<-`(
+#             seq_len(n_pixels)
+#           ) |>
+#           dplyr::as_tibble() |>
+#           dplyr::mutate(
+#             time_index = dplyr::row_number(),
+#             .before = everything()
+#           ) |>
+#           tidyr::pivot_longer(
+#             cols = !any_of("time_index"),
+#             names_to = "pixel_index",
+#             values_to = "value"
+#           ) |>
+#           dplyr::mutate(
+#             pixel_index = as.numeric(pixel_index)
+#           )
+#       }
+#     ) |>
+#     # stack these side by side (with lapply - much faster than bind_rows and
+#     # pivot_wider)
+#     recombine_variables() |>
+# #     dplyr::bind_rows(
+# #       .id = "variable"
+# #     ) |>
+# #     tidyr::pivot_wider(
+# #       names_from = variable,
+# #       values_from = value
+# #     ) |>
+#     # add on the time information and drop the index
+#     dplyr::left_join(
+#       times_info,
+#       by = "time_index"
+#     ) |>
+#     dplyr::select(
+#       -time_index
+#     ) |>
+#     # turn the useful conditions information (not rainfall or windspeed) into a
+#     # list column
+#     dplyr::group_by(
+#       pixel_index
+#     ) |>
+#     dplyr::summarise(
+#       hourly_conditions = list(
+#         dplyr::tibble(
+#           date,
+#           hour,
+#           water_surface_area,
+#           air_temperature,
+#           humidity,
+#           water_temperature
+#         )
+#       ),
+#       .groups = "drop"
+#     ) |>
+#     # now add back on the pixel information
+#     dplyr::left_join(
+#       pixel_info,
+#       by = "pixel_index"
+#     ) |>
+#     dplyr::relocate(
+#       hourly_conditions,
+#       .after = everything()
+#     ) |>
+#     dplyr::select(
+#       -pixel_index
+#     )
 
 }
 
@@ -612,7 +698,7 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
   # dimensions of things
   n_pixels <- nrow(pixel_hourly_lifehistory)
   n_times <- nrow(pixel_hourly_lifehistory$hourly_lifehistory[[1]])
-  
+
   # subset to wide format with only the pixel/time indices
   parameters_sub <- data_with_pixel |>
     # drop unneeded pixel info (to prevent duplication and memory clog)
@@ -665,70 +751,6 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
   # NOTE: this is inelegant. The code previously did a pivot longer, grouped,
   # did a group_split, and then pivoted wider, but that was much slower
 
-
-  # # create a grouped (by lifehistory parameter) tibble of values per parameter,
-  # # pixel, and time
-  # parameters <- data_with_pixel |>
-  #   # drop unneeded pixel info (to prevent duplication and memory clog)
-  #   dplyr::select(
-  #     pixel_index,
-  #     hourly_lifehistory
-  #   ) |>
-  #   # unnest the lifehistory data and add on the time index
-  #   tidyr::unnest(
-  #     hourly_lifehistory
-  #   ) |>
-  #   dplyr::left_join(
-  #     times_info,
-  #     by = c("date", "hour")
-  #   ) |>
-  #   # drop unneeded time and climate info (to prevent duplication and memory clog)
-  #   dplyr::select(
-  #     -date,
-  #     -hour
-  #   ) |>
-  #   # convert to long format
-  #   tidyr::pivot_longer(
-  #     cols = !any_of(c("pixel_index", "time_index")),
-  #     names_to = "parameter",
-  #     values_to = "value"
-  #   ) |>
-  #   dplyr::relocate(
-  #     parameter,
-  #     .before = everything()
-  #   ) |>
-  #   # group by parameter, so we can turn into a named list of matrices next
-  #   dplyr::group_by(
-  #     parameter
-  #   )
-  #
-  # # names of the variables
-  # parameter_names <- dplyr::group_keys(parameters)$parameter
-  #
-  # # create a named list with each element containing a time-by-pixel matrix of the
-  # # values of each of the different microclimate variables used for modelling
-  # # water
-  # parameter_list <- parameters |>
-  #   dplyr::group_split(
-  #     .keep = FALSE
-  #   ) |>
-  #   setNames(
-  #     parameter_names
-  #   ) |>
-  #   lapply(
-  #     function(parameter_tbl) {
-  #       parameter_tbl |>
-  #         tidyr::pivot_wider(
-  #           names_from = pixel_index,
-  #           values_from = value
-  #         ) |>
-  #         dplyr::select(
-  #           -time_index
-  #         ) |>
-  #         as.matrix()
-  #     }
-  #   )
-
   # now run vectorised population simulation to return a named list with
   # time-by-pixel matrices of adult and aquatic population sizes
   population_list <- simulate_population_vectorised(
@@ -743,16 +765,9 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
     das_densmod_function = das_densmod_function
   )
 
-
-  # combine this list with the microclimate information that is needed for
-  # modelling mosquito lifehistory parameters
-  final_list <- c(parameter_list,
-                  population_list)
-
-  # now convert this list of pixel-by-time condition information back into a
-  # tibble with a list column of conditions per pixel (with time info added back
-  # on), and add back on the pixel info
-  final_list |>
+  # now convert this list of pixel-by-time population information back into a
+  # tibble with avalues by pixel and time index
+  population_sub <- population_list |>
     lapply(
       function(matrix) {
         # convert matrix to tidy format tibble with indices
@@ -778,14 +793,23 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
     ) |>
     # stack these side by side (with lapply - much faster than bind_rows and
     # pivot_wider)
-    recombine_variables() |>
-#     dplyr::bind_rows(
-#       .id = "variable"
-#     ) |>
-#     tidyr::pivot_wider(
-#       names_from = variable,
-#       values_from = value
-#     ) |>
+    recombine_variables()
+
+
+  # drop index information to recombine this with the parameter information
+  # (faster than left_join)
+  population_sub_noindex <- population_sub |>
+    dplyr::select(
+      -time_index,
+      -pixel_index
+    )
+
+  # recombine with the microclimate variables, add time information, nest by
+  # pixel, and add back on the pixel information
+  parameters_sub |>
+    dplyr::bind_cols(
+      population_sub_noindex
+    ) |>
     # add on the time information and drop the index
     dplyr::left_join(
       times_info,
@@ -827,6 +851,84 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
     dplyr::select(
       -pixel_index
     )
+
+
+  # # combine this list with the microclimate information that is needed for
+  # # modelling mosquito lifehistory parameters
+  # final_list <- c(parameter_list,
+  #                 population_list)
+
+  # # now convert this list of pixel-by-time condition information back into a
+  # # tibble with a list column of conditions per pixel (with time info added back
+  # # on), and add back on the pixel info
+  # final_list |>
+  #   lapply(
+  #     function(matrix) {
+  #       # convert matrix to tidy format tibble with indices
+  #       n_pixels <- ncol(matrix)
+  #       matrix |>
+  #         `colnames<-`(
+  #           seq_len(n_pixels)
+  #         ) |>
+  #         dplyr::as_tibble() |>
+  #         dplyr::mutate(
+  #           time_index = dplyr::row_number(),
+  #           .before = everything()
+  #         ) |>
+  #         tidyr::pivot_longer(
+  #           cols = !any_of("time_index"),
+  #           names_to = "pixel_index",
+  #           values_to = "value"
+  #         ) |>
+  #         dplyr::mutate(
+  #           pixel_index = as.numeric(pixel_index)
+  #         )
+  #     }
+  #   ) |>
+  #   # stack these side by side (with lapply - much faster than bind_rows and
+  #   # pivot_wider)
+  #   recombine_variables() |>
+  #   # add on the time information and drop the index
+  #   dplyr::left_join(
+  #     times_info,
+  #     by = "time_index"
+  #   ) |>
+  #   dplyr::select(
+  #     -time_index
+  #   ) |>
+  #   # turn the useful conditions information (not rainfall or windspeed) into a
+  #   # list column
+  #   dplyr::group_by(
+  #     pixel_index
+  #   ) |>
+  #   dplyr::summarise(
+  #     hourly_vector = list(
+  #       dplyr::tibble(
+  #         date,
+  #         hour,
+  #         adult,
+  #         aquatic,
+  #         larval_habitat_area,
+  #         ds,
+  #         mdr,
+  #         efd,
+  #         das_zerodensity
+  #       )
+  #     ),
+  #     .groups = "drop"
+  #   ) |>
+  #   # now add back on the pixel information
+  #   dplyr::left_join(
+  #     pixel_info,
+  #     by = "pixel_index"
+  #   ) |>
+  #   dplyr::relocate(
+  #     hourly_vector,
+  #     .after = everything()
+  #   ) |>
+  #   dplyr::select(
+  #     -pixel_index
+  #   )
 
 }
 
