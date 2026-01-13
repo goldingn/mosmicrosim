@@ -92,7 +92,7 @@ extract_terraclimate_tile <- function(extent, dates, tc_template) {
     variable = variables
   )
 
-  stack |>
+  result <- stack |>
     as.data.frame.table(
       stringsAsFactors = FALSE
     ) |>
@@ -136,22 +136,36 @@ extract_terraclimate_tile <- function(extent, dates, tc_template) {
           start, end, tmax, tmin, ppt, ws, vpd, srad
         )
       ),
-      .groups = "keep"
-    ) |>
-    # pad with an additional synthetic month of data (to enable spline
-    # interpolation to the back half of the last month) computed as the average
-    # of the last three of those months. Ie. if we end on a December, impute an
-    # January from the next year based on up to the last three January
-    # datapoints in the extracted data
-    dplyr::mutate(
-      monthly_terraclimate = list(
-        pad_last_month(
-          monthly_terraclimate[[1]],
-          n_previous = 3
+      .groups = "drop"
+    )
+
+  # if we have extracted the final available month in the terraclimate data,
+  # then pad the end with an additional synthetic month of data (to enable
+  # spline interpolation to the back half of the last month) computed as the
+  # average of the last three of those months. Ie. if we end on a December,
+  # impute an January from the next year based on up to the last three January
+  # datapoints in the extracted data
+  last_month_start <- max(result$monthly_terraclimate[[1]]$start)
+  end_of_the_line <- last_month_start == last_available_month_start()
+
+  if (end_of_the_line) {
+    result <- result |>
+      dplyr::group_by(
+        latitude,
+        longitude
+      ) |>
+      dplyr::mutate(
+        monthly_terraclimate = list(
+          pad_last_month(
+            monthly_terraclimate[[1]],
+            n_previous = 3
+          )
         )
-      )
-    ) |>
-    dplyr::ungroup()
+      ) |>
+      dplyr::ungroup()
+  }
+
+  result
 
 }
 

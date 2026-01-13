@@ -94,6 +94,13 @@ monthly_summary_days <- function(dates, buffer_days = 183) {
   seq(min_date, max_date, by = "1 month")
 }
 
+last_available_month_start <- function() {
+  terraclimate_available <- terraclimate_available_indices()
+  last_available_index <- max(terraclimate_available$times)
+  last_available_start_date <- days_since_1900()[last_available_index + 1]
+  last_available_start_date
+}
+
 # error nicely if the user provides inaccessible dates
 check_dates <- function(dates, terraclimate_available) {
 
