@@ -118,7 +118,9 @@ extract_terraclimate_tile <- function(extent, dates, tc_template) {
       .after = start
     ) |>
     # remove pixels where the template has no data
-    clean_tile_data(tc_template) |>
+    clean_tile_data(
+      tc_template
+    ) |>
     # convert to a tibble for each pixel
     tidyr::pivot_wider(
       names_from = variable,
@@ -134,8 +136,22 @@ extract_terraclimate_tile <- function(extent, dates, tc_template) {
           start, end, tmax, tmin, ppt, ws, vpd, srad
         )
       ),
-      .groups = "drop"
-    )
+      .groups = "keep"
+    ) |>
+    # pad with an additional synthetic month of data (to enable spline
+    # interpolation to the back half of the last month) computed as the average
+    # of the last three of those months. Ie. if we end on a December, impute an
+    # January from the next year based on up to the last three January
+    # datapoints in the extracted data
+    dplyr::mutate(
+      monthly_terraclimate = list(
+        pad_last_month(
+          monthly_terraclimate[[1]],
+          n_previous = 3
+        )
+      )
+    ) |>
+    dplyr::ungroup()
 
 }
 

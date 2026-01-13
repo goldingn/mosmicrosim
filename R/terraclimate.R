@@ -31,7 +31,7 @@ terraclimate_available_indices <- function() {
     on.exit(ncdf4::nc_close(con))
 
     # find times and places for which there are data, and return
-    tc_avail_indices <-list(
+    tc_avail_indices <- list(
       times = ncdf4::ncvar_get(con, "time"),
       longitudes = ncdf4::ncvar_get(con, "lon"),
       latitudes = ncdf4::ncvar_get(con, "lat")
@@ -494,6 +494,63 @@ clean_tile_data <- function(tile_data, tc_template) {
       tile_data,
       by = c("longitude", "latitude")
     )
+
+}
+
+# given a tibble of monthly terraclimate data for a pixel, such as is returned
+# for each pixel in extract_terraclimate_tile(), pad the timeseries with a
+# synthetic value for the next month, using an average of the previous
+# 'n_previous' of those months in the dataset. This enables fast spline
+# interpolation to days in the latter half of the final month in the dataset
+pad_last_month <- function(monthly_terraclimate, n_previous = 3) {
+
+  # get the start date of the last month in the dataset
+  last_start <- max(monthly_terraclimate$start)
+
+  # get the start date of the next month
+  next_start <- lubridate::add_with_rollback(
+    last_start,
+    lubridate::period(1, units = "month")
+  )
+
+  # and the end date of that month
+  next_end <- lubridate::ceiling_date(
+    next_start,
+    unit = "month"
+  ) - 1
+
+  # get the start dates of the months in the previous 'n_previous' years
+  previous_starts <- lubridate::add_with_rollback(
+    next_start,
+    lubridate::years(-seq_len(n_previous))
+  )
+
+  # subset and summarise data for these months
+  pad_data <- monthly_terraclimate |>
+    dplyr::filter(
+      start %in% previous_starts
+    ) |>
+    dplyr::select(
+      -start,
+      -end
+    ) |>
+    dplyr::summarise(
+      across(
+        everything(),
+        mean
+      )
+    ) |>
+    dplyr::mutate(
+      start = next_start,
+      end = next_end,
+      .before = everything()
+    )
+
+  # append this to the original data and return
+  dplyr::bind_rows(
+    monthly_terraclimate,
+    pad_data
+  )
 
 }
 
