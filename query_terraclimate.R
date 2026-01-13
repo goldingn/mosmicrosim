@@ -75,8 +75,8 @@ tiles <- make_tiles(tc_template, target_n_tiles = 100)
 # points(zoom_points,
 #        pch = 16)
 
-# define all dates to extract per tile (earlier ones will be extracted to
-# enable burnin)
+# define all dates we want to simulate for (these will be padded slightly to
+# enable interpolation to these dates)
 dates <- seq(as.Date("2000-01-01"),
              as.Date("2024-12-31"),
              by = "1 day")
@@ -133,11 +133,6 @@ process_time <- system.time(expr = {
 
 })
 
-# 8.5s for 10 pixels
-
-# most overhead is the predict.gam call in spline_seasonal()
-
-
 # download time ~65s for a small tile (tile 1, ~2.4 square degrees) and ~268s
 # for the largest possible tile (e.g. tile 5, ~25.6 square degrees)
 download_time["elapsed"]
@@ -167,7 +162,7 @@ hours / 24
 # hours processing time on a 64 core machine for ambient microclimate only
 
 # with ambient microclimate and population simulation, latest speedups, on a 64
-# core machine: 10.5h processing time
+# core machine: 5.4h processing time
 seconds_per_pixel <- process_time["elapsed"] / n_pixels
 hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
 hours
@@ -190,8 +185,6 @@ pixel_monthly_vector$pixel_vectors[[1]] |>
 
 
 # to do:
-
-# optimise a few more bits of processing code
 
 # set up parallelisation across blocks of pixels in a tile (split into n_cores
 # groups, and parallel compute the water conditions and the population dynamics)

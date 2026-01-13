@@ -4,17 +4,30 @@
 # given a tibble of monthly climate data for NicheMapR (as created by
 # process_terraclimate_tile_vars()) return a
 # tibble of daily climate data interpolated for all the days in those dates those dates
-daily_from_monthly_climate <- function(monthly_climate) {
+daily_from_monthly_climate <- function(monthly_climate,
+                                       dates_predict = NULL) {
 
-  # all dates to predict to
-  dates_predict <- seq(from = min(monthly_climate$start),
-                       to = max(monthly_climate$end),
-                       by = 1)
+  # If not specified, interpolate to all dates between the midpoints of the
+  # first and last months in the terraclimate data
+  if (is.null(dates_predict)) {
+
+    limits <- monthly_climate |>
+      dplyr::mutate(
+        midpoint = start + round((end - start) / 2)
+      ) |>
+      dplyr::summarise(
+        min = min(midpoint),
+        max = max(midpoint)
+      )
+    dates_predict <- seq(from = limits$min,
+                         to = limits$max,
+                         by = 1)
+  }
 
   monthly_climate |>
 
     dplyr::mutate(
-      # compute the midpoint fo the date range for splining
+      # compute the midpoint of the date range for splining
       mid_date = start + (end - start) / 2,
       # maybe transform daily rainfall for splining, then convert back later
       rainfall_daily = log1p(rainfall_daily),

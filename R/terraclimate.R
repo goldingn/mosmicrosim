@@ -84,8 +84,9 @@ days_since_1900 <- function() {
 }
 
 # return a sequence of last days of the month, for all months encompassing the
-# requested dates
-monthly_summary_days <- function(dates, buffer_days = 183) {
+# requested dates, plus a buffer on either side to enable interpolation from
+# adjacent months (if available in the data)
+monthly_summary_days <- function(dates, buffer_days = 21) {
   # start of month buffer_days before the first date
   min_date <- lubridate::floor_date(min(dates) - buffer_days, unit = "month")
   # start of month buffer_days after the last date
