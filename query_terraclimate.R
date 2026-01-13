@@ -100,7 +100,7 @@ download_time <- system.time(
 # subset this for now for testing
 pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
   dplyr::slice_head(
-    n = 100
+    n = 2
   )
 
 # profvis::profvis(rerun = TRUE, expr = {

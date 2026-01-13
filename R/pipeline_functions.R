@@ -474,6 +474,10 @@ simulate_hourly_conditions <- function(
   # drop index information to recombine this with the microclimate information
   # (faster than left_join)
   water_sub_noindex <- water_sub |>
+    dplyr::arrange(
+      pixel_index,
+      time_index
+    ) |>
     dplyr::select(
       -time_index,
       -pixel_index
@@ -482,9 +486,14 @@ simulate_hourly_conditions <- function(
   # recombine with the microclimate variables, add time information, nest by
   # pixel, and add back on the pixel information
   variables_sub |>
+    dplyr::arrange(
+      pixel_index,
+      time_index
+    ) |>
     dplyr::bind_cols(
       water_sub_noindex
     ) |>
+    # # faster than this
     # dplyr::left_join(
     #   water_sub,
     #   by = c("time_index", "pixel_index")
@@ -826,9 +835,13 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
     recombine_variables()
 
 
-  # drop index information to recombine this with the parameter information
-  # (faster than left_join)
+  # # drop index information to recombine this with the parameter information
+  # # (faster than left_join)
   population_sub_noindex <- population_sub |>
+    dplyr::arrange(
+      pixel_index,
+      time_index
+    ) |>
     dplyr::select(
       -time_index,
       -pixel_index
@@ -837,9 +850,18 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
   # recombine with the microclimate variables, add time information, nest by
   # pixel, and add back on the pixel information
   parameters_sub |>
+    dplyr::arrange(
+      pixel_index,
+      time_index
+    ) |>
     dplyr::bind_cols(
       population_sub_noindex
     ) |>
+    # # faster than this
+    # dplyr::left_join(
+    #   population_sub,
+    #   by = c("time_index", "pixel_index")
+    # ) |>
     # add on the time information and drop the index
     dplyr::left_join(
       times_info,
