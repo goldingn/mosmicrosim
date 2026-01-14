@@ -89,19 +89,18 @@ if (!dir.exists(terraclimate_save_dir)) {
 }
 
 # tiles_to_do <- seq_len(n_tiles)
-tiles_to_do <- 8:n_tiles
-for (i in tiles_to_do) {
-  tiles$extent[[i]] |>
-  extract_terraclimate_tile(
-    dates = dates,
-    tc_template = tc_template
-  ) |>
-    saveRDS(
-      file = file.path(terraclimate_save_dir,
-                       sprintf("tc_tile_%d.RDS",
-                               i))
-    )
-}
+# for (i in tiles_to_do) {
+#   tiles$extent[[i]] |>
+#   extract_terraclimate_tile(
+#     dates = dates,
+#     tc_template = tc_template
+#   ) |>
+#     saveRDS(
+#       file = file.path(terraclimate_save_dir,
+#                        sprintf("tc_tile_%d.RDS",
+#                                i))
+#     )
+# }
 
 # loop through the downloaded terraclimate tiles, loading the data into a
 # tibble, running the full vetor simulation on all pixels in the tile, and
@@ -111,35 +110,59 @@ if (!dir.exists(vector_save_dir)) {
   dir.create(vector_save_dir, recursive = TRUE)
 }
 
+# process batches of pixels in parallel. Set the number of workers (CPU cores),
+# and the maximum number of pixels to run at any one time, modified to manage
+# memory usage. Use these to define the number per processing batch
+n_workers <- 4
+n_pixels_at_once <- 100
+n_pixels_per_batch <- n_pixels_at_once / n_workers
+
+library(furrr)
+plan(multisession, workers = n_workers)
+
 tiles_to_do <- seq_len(n_tiles)
 tiles_to_do <- 1:2
+
 for (i in tiles_to_do) {
+
   # load terraclimate tile data
   file.path(terraclimate_save_dir,
             sprintf("tc_tile_%d.RDS", i)) |>
     readRDS() |>
-    # convert terraclimate data into monthly variables needed for microclimate
-    # modelling
-    terraclimate_to_monthly_climate() |>
-    # interpolate these to daily max/min data
-    interpolate_daily_climate() |>
-    # interpolate microclimates on an hourly timestep
-    simulate_hourly_microclimate() |>
-    # model conditions experienced by vectors in the microclimate (microclimate,
-    # plus water surface area and water temperature) on an hourly timestep
-    simulate_hourly_conditions(
-      model_water_temperature = FALSE,
-      water_shade_proportion = 1
+    # add batch variable
+    dplyr::mutate(
+      # assign pixels to batches, with no more than n_pixels_per_batch pixels in
+      # each
+      batch = rep(
+        seq_len(
+          ceiling(
+            dplyr::n() / n_pixels_per_batch
+          )
+        ),
+        each = n_pixels_per_batch,
+        length.out = dplyr::n()
+      ),
+      .before = everything()
     ) |>
-    # model vector lifehistory parameters
-    simulate_hourly_lifehistory(
-      species = "An. gambiae"
+    # split up the tile into these batches
+    dplyr::group_by(
+      batch
     ) |>
-    # model vector populations and transmission-relevant parameters
-    simulate_hourly_vectors() |>
-    # aggregate by month
-    summarise_vectors(
-      aggregate_by = "month"
+    tidyr::nest() |>
+    dplyr::ungroup() |>
+    # begin processing steps, all in one go to reduce overhead
+    dplyr::mutate(
+      data = furrr::future_map(
+        data,
+        ~mosmicrosim:::tc_to_vectors(.x, species = "An. gambiae"),
+        .options = furrr_options(seed = NULL)
+      )
+    ) |>
+    dplyr::select(
+      -batch
+    ) |>
+    tidyr::unnest(
+      cols = data
     ) |>
     # save the processed tile of vector simulations as a compressed RDS file
     saveRDS(

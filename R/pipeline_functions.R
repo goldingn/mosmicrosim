@@ -1068,3 +1068,38 @@ aggregate_vectors <- function(vector_tibble,
   aggregated_tibble
 }
 
+
+# overall function to run the entire pipeline to monthly vector data. Input the
+# pixel-level terracliamate data, as produced by extract_terraclimate_tile() and
+# stored in saved tile info, and return monthly-aggregated pixel-level vector
+# timeseries information
+tc_to_vectors <- function(pixel_terraclimate_data,
+                          species = c("An. gambiae",
+                                      "An. stephensi")) {
+
+  species <- match.arg(species)
+
+  # get terraclimate data for this batch of pixels
+  pixel_terraclimate_data |>
+    # convert terraclimate data into monthly variables needed for microclimate
+    # modelling
+    terraclimate_to_monthly_climate() |>
+    # interpolate these to daily max/min data
+    interpolate_daily_climate() |>
+    # interpolate microclimates on an hourly timestep
+    simulate_hourly_microclimate() |>
+    # model conditions experienced by vectors in the microclimate (microclimate,
+    # plus water surface area and water temperature) on an hourly timestep
+    simulate_hourly_conditions() |>
+    # model vector lifehistory parameters
+    simulate_hourly_lifehistory(
+      species = species
+    ) |>
+    # model vector populations and transmission-relevant parameters
+    simulate_hourly_vectors() |>
+    # aggregate by month
+    summarise_vectors(
+      aggregate_by = "month"
+    )
+
+}
