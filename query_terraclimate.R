@@ -8,14 +8,14 @@
 pkgload::load_all()
 
 # load major dependencies
-library(NicheMapR)
+# library(NicheMapR)
 library(terra)
 library(ggplot2)
 
 # demo: batch process analysis in tiles
 
 # load a template raster for Africa
-template <- rast("~/Dropbox/github/ir_cube/data/clean/raster_mask.tif")
+template <- rast("temp/raster_mask.tif")
 
 # create a corresponding terraclimate raster (aligned with terraclimate grid
 # setup, and excluding missing cells in terraclimate or more than 1 cell away
@@ -24,9 +24,9 @@ template <- rast("~/Dropbox/github/ir_cube/data/clean/raster_mask.tif")
 # after all processing is complete
 tc_template <- make_terraclimate_template(template)
 
-# get an elevation layer in this format (is this needed? Just have the altitude
-# function default to the terraclimate one?)
-tc_elevation <- get_tc_elevation_raster(tc_template)
+# # get an elevation layer in this format (is this needed? Just have the altitude
+# # function default to the terraclimate one?)
+# tc_elevation <- get_tc_elevation_raster(tc_template)
 
 # now batch-process this by defining tiles covering the continent,
 # and extracting whole slices for those tiles for the required times
