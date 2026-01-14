@@ -34,9 +34,9 @@ tc_elevation <- get_tc_elevation_raster(tc_template)
 # make a tibble of tiles
 tiles <- make_tiles(tc_template, target_n_tiles = 100)
 
-# # not too bad
-# nrow(tiles)
-#
+# not too bad
+n_tiles <- nrow(tiles)
+
 # # check how they look
 # par(mfrow = c(1, 1))
 # plot(tc_template,
@@ -87,26 +87,43 @@ microclimate_params <- list(
   adult_height = 1
 )
 
-# download terraclimate variables required for running microclimate simulations
-download_time <- system.time(
-  # extract terraclimate data for all pixels in this tile
-  pixel_terraclimate_data <- extract_terraclimate_tile(
-    extent = tiles$extent[[1]],
+# loop through these tiles, extracting the data to a tibble, and saving the
+# tibble to disk as a compressed RDS file
+terraclimate_save_dir <- "processing/terraclimate"
+if (!dir.exists(terraclimate_save_dir)) {
+  dir.create(terraclimate_save_dir, recursive = TRUE)
+}
+
+tiles_to_do <- seq_len(n_tiles)
+# tiles_to_do <- 1:2
+for (i in tiles_to_do) {
+  tiles$extent[[i]] |>
+  extract_terraclimate_tile(
     dates = dates,
     tc_template = tc_template
-  )
-)
+  ) |>
+    saveRDS(
+      file = file.path(terraclimate_save_dir,
+                       sprintf("tc_tile_%d.RDS",
+                               i))
+    )
+}
 
-# subset this for now for testing
-pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
-  dplyr::slice_head(
-    n = 2
-  )
+# loop through the downloaded terraclimate tiles, loading the data into a
+# tibble, running the full vetor simulation on all pixels in the tile, and
+# saving the results as a compressed RDS file
+vector_save_dir <- "processing/vectors"
+if (!dir.exists(vector_save_dir)) {
+  dir.create(vector_save_dir, recursive = TRUE)
+}
 
-# profvis::profvis(rerun = TRUE, expr = {
-process_time <- system.time(expr = {
-
-  pixel_monthly_vector <- pixel_terraclimate_data_sub |>
+tiles_to_do <- seq_len(n_tiles)
+tiles_to_do <- 1:2
+for (i in tiles_to_do) {
+  # load terraclimate tile data
+  file.path(terraclimate_save_dir,
+            sprintf("tc_tile_%d.RDS", i)) |>
+    readRDS() |>
     # convert terraclimate data into monthly variables needed for microclimate
     # modelling
     terraclimate_to_monthly_climate() |>
@@ -129,57 +146,108 @@ process_time <- system.time(expr = {
     # aggregate by month
     summarise_vectors(
       aggregate_by = "month"
+    ) |>
+    # save the processed tile of vector simulations as a compressed RDS file
+    saveRDS(
+      file = file.path(vector_save_dir,
+                sprintf("vector_tile_%d.RDS", i))
     )
-
-})
-
-# download time ~65s for a small tile (tile 1, ~2.4 square degrees) and ~268s
-# for the largest possible tile (e.g. tile 5, ~25.6 square degrees)
-download_time["elapsed"]
-
-# compute upper bound on time to download tile data
-nrow(tiles) * 268  / 3600
-# 10.2h!
-
-# processing time for this subset
-process_time["elapsed"]
-
-# 35s with 30s and latest speedups
-
-# number of pixels in this subset
-n_pixels <- nrow(pixel_terraclimate_data_sub)
-
-cpus <- 64
-pixels_per_cpu <- ncell(tc_template) %/% 64
-
-# 260s per pixel runtime for nichemapr
-seconds_per_pixel <- 260
-hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
-hours / 24
-# 135 *days* on a 64 core machine for nichemapr
-
-# 1.23s for a single pixel for ambient microclimate and water volume, so 14-6
-# hours processing time on a 64 core machine for ambient microclimate only
-
-# with ambient microclimate and population simulation, latest speedups, on a 64
-# core machine: 5.4h processing time
-seconds_per_pixel <- process_time["elapsed"] / n_pixels
-hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
-hours
+}
 
 
-pixel_monthly_vector$pixel_vectors[[1]] |>
-  dplyr::filter(
-    start > as.Date("2010-01-01")
-  ) |>
-  ggplot(
-    aes(
-      x = start,
-      y = adult
-    )
-  ) +
-  geom_line() +
-  theme_minimal()
+# # download terraclimate variables required for running microclimate simulations
+# download_time <- system.time(
+#   # extract terraclimate data for all pixels in this tile
+#   pixel_terraclimate_data <- extract_terraclimate_tile(
+#     extent = tiles$extent[[1]],
+#     dates = dates,
+#     tc_template = tc_template
+#   )
+# )
+#
+# # subset this for now for testing
+# pixel_terraclimate_data_sub <- pixel_terraclimate_data |>
+#   dplyr::slice_head(
+#     n = 2
+#   )
+#
+# # profvis::profvis(rerun = TRUE, expr = {
+# process_time <- system.time(expr = {
+#
+#   pixel_monthly_vector <- pixel_terraclimate_data_sub |>
+#     # convert terraclimate data into monthly variables needed for microclimate
+#     # modelling
+#     terraclimate_to_monthly_climate() |>
+#     # interpolate these to daily max/min data
+#     interpolate_daily_climate() |>
+#     # interpolate microclimates on an hourly timestep
+#     simulate_hourly_microclimate() |>
+#     # model conditions experienced by vectors in the microclimate (microclimate,
+#     # plus water surface area and water temperature) on an hourly timestep
+#     simulate_hourly_conditions(
+#       model_water_temperature = FALSE,
+#       water_shade_proportion = 1
+#     ) |>
+#     # model vector lifehistory parameters
+#     simulate_hourly_lifehistory(
+#       species = "An. gambiae"
+#     ) |>
+#     # model vector populations and transmission-relevant parameters
+#     simulate_hourly_vectors() |>
+#     # aggregate by month
+#     summarise_vectors(
+#       aggregate_by = "month"
+#     )
+#
+# })
+#
+# # download time ~65s for a small tile (tile 1, ~2.4 square degrees) and ~268s
+# # for the largest possible tile (e.g. tile 5, ~25.6 square degrees)
+# download_time["elapsed"]
+#
+# # compute upper bound on time to download tile data
+# nrow(tiles) * 268  / 3600
+# # 10.2h!
+#
+# # processing time for this subset
+# process_time["elapsed"]
+#
+# # 35s with 30s and latest speedups
+#
+# # number of pixels in this subset
+# n_pixels <- nrow(pixel_terraclimate_data_sub)
+#
+# cpus <- 64
+# pixels_per_cpu <- ncell(tc_template) %/% 64
+#
+# # 260s per pixel runtime for nichemapr
+# seconds_per_pixel <- 260
+# hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
+# hours / 24
+# # 135 *days* on a 64 core machine for nichemapr
+#
+# # 1.23s for a single pixel for ambient microclimate and water volume, so 14-6
+# # hours processing time on a 64 core machine for ambient microclimate only
+#
+# # with ambient microclimate and population simulation, latest speedups, on a 64
+# # core machine: 5.4h processing time
+# seconds_per_pixel <- process_time["elapsed"] / n_pixels
+# hours <- (seconds_per_pixel * pixels_per_cpu) / 3600
+# hours
+#
+#
+# pixel_monthly_vector$pixel_vectors[[1]] |>
+#   dplyr::filter(
+#     start > as.Date("2010-01-01")
+#   ) |>
+#   ggplot(
+#     aes(
+#       x = start,
+#       y = adult
+#     )
+#   ) +
+#   geom_line() +
+#   theme_minimal()
 
 
 
