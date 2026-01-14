@@ -154,7 +154,11 @@ for (i in tiles_to_do) {
     dplyr::mutate(
       data = furrr::future_map(
         data,
-        ~mosmicrosim:::tc_to_vectors(.x, species = "An. gambiae"),
+        ~mosmicrosim:::tc_to_vectors(
+          .x,
+          species = "An. gambiae",
+          included_dates = dates
+        ),
         .options = furrr_options(seed = NULL)
       )
     ) |>
@@ -213,7 +217,8 @@ for (i in tiles_to_do) {
 #     simulate_hourly_vectors() |>
 #     # aggregate by month
 #     summarise_vectors(
-#       aggregate_by = "month"
+#       aggregate_by = "month",
+#       include_dates = dates
 #     )
 #
 # })

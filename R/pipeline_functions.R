@@ -989,11 +989,19 @@ simulate_hourly_vectors <- function(pixel_hourly_lifehistory) {
 # to return a per-pixel tibble with: latitude, longitude, and list-column of
 # tibbles with the monthly (or daily, if aggregate_by = "day") vector
 # information (average number of adults, average number of aquatics, average
-# lifehistory parameters and water surface areas and the species name)
+# lifehistory parameters and water surface areas and the species name).
+# included_dates can be specified to enable subsetting of dates before
+# summarisation
 summarise_vectors <- function(pixel_hourly_vectors,
-                              aggregate_by = c("month", "day")) {
+                              aggregate_by = c("month", "day"),
+                              included_dates = NULL) {
 
   aggregate_by <- match.arg(aggregate_by)
+
+  # if the included dates are null, return all dates
+  if (is.null(included_dates)) {
+    included_dates <- unique(pixel_hourly_vectors$hourly_vector[[1]]$date)
+  }
 
   # loop across the pixels, for each tibble of hourly vector data, group by
   # either the date or the month and summarise by the mean for the useful
@@ -1009,18 +1017,26 @@ summarise_vectors <- function(pixel_hourly_vectors,
       pixel_vectors = list(
         aggregate_vectors(
           hourly_vector[[1]],
-          aggregate_by = aggregate_by
+          aggregate_by = aggregate_by,
+          included_dates = included_dates
         )
       ),
       .groups = "drop"
     )
 }
 
-# aggregate the vector data to a given date or a given month
+# aggregate the vector data to a given date or a given month. included_dates can
+# be specified to enable subsetting of dates before summarisation
 aggregate_vectors <- function(vector_tibble,
-                              aggregate_by = c("day", "month")) {
+                              aggregate_by = c("day", "month"),
+                              included_dates = NULL) {
 
   aggregate_by <- match.arg(aggregate_by)
+
+  # if the included dates are null, return all dates
+  if (is.null(included_dates)) {
+    included_dates <- unique(vector_tibble$date)
+  }
 
   vector_variables <- c(
     "adult",
@@ -1033,6 +1049,9 @@ aggregate_vectors <- function(vector_tibble,
 
   if (aggregate_by == "day") {
     aggregated_tibble <- vector_tibble |>
+      dplyr::filter(
+        date %in% included_dates
+      ) |>
       dplyr::group_by(
         date
       ) |>
@@ -1045,6 +1064,9 @@ aggregate_vectors <- function(vector_tibble,
       )
   } else if (aggregate_by == "month") {
     aggregated_tibble <- vector_tibble |>
+      dplyr::filter(
+        date %in% included_dates
+      ) |>
       dplyr::mutate(
         start = lubridate::floor_date(date,
                                       unit = "month"),
@@ -1071,11 +1093,13 @@ aggregate_vectors <- function(vector_tibble,
 
 # overall function to run the entire pipeline to monthly vector data. Input the
 # pixel-level terracliamate data, as produced by extract_terraclimate_tile() and
-# stored in saved tile info, and return monthly-aggregated pixel-level vector
-# timeseries information
+# stored in saved tile info, the species name, and the dates to be included in
+# the final monthly summaries. Return monthly-aggregated pixel-level vector
+# timeseries information.
 tc_to_vectors <- function(pixel_terraclimate_data,
                           species = c("An. gambiae",
-                                      "An. stephensi")) {
+                                      "An. stephensi"),
+                          included_dates = NULL) {
 
   species <- match.arg(species)
 
@@ -1099,7 +1123,8 @@ tc_to_vectors <- function(pixel_terraclimate_data,
     simulate_hourly_vectors() |>
     # aggregate by month
     summarise_vectors(
-      aggregate_by = "month"
+      aggregate_by = "month",
+      included_dates = included_dates
     )
 
 }
