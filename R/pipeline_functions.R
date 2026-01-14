@@ -1064,9 +1064,6 @@ aggregate_vectors <- function(vector_tibble,
       )
 
   }
-  # grouped_tibble <- switch(
-  #   aggregate_by
-  # )
 
   aggregated_tibble
 }

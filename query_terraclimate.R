@@ -81,12 +81,6 @@ dates <- seq(as.Date("2000-01-01"),
              as.Date("2024-12-31"),
              by = "1 day")
 
-# set up microclimate parameters
-microclimate_params <- list(
-  shade_proportion = 1,
-  adult_height = 1
-)
-
 # loop through these tiles, extracting the data to a tibble, and saving the
 # tibble to disk as a compressed RDS file
 terraclimate_save_dir <- "processing/terraclimate"
@@ -94,8 +88,8 @@ if (!dir.exists(terraclimate_save_dir)) {
   dir.create(terraclimate_save_dir, recursive = TRUE)
 }
 
-tiles_to_do <- seq_len(n_tiles)
-# tiles_to_do <- 1:2
+# tiles_to_do <- seq_len(n_tiles)
+tiles_to_do <- 8:n_tiles
 for (i in tiles_to_do) {
   tiles$extent[[i]] |>
   extract_terraclimate_tile(

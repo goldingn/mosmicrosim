@@ -59,7 +59,9 @@ terraclimate_fetch <- function(
   ncdf4::ncvar_get(con,
                    varid = variable,
                    start = slice$start,
-                   count = slice$count)
+                   count = slice$count,
+                   # don't drop length-1 dimensions
+                   collapse_degen = FALSE)
 }
 
 # find the nearest lat and long in terra climate to the user's. Check the
@@ -305,14 +307,18 @@ make_terraclimate_template <- function(template) {
   timesteps <- raster_slice$count[3]
   raster_slice$start[3] <- raster_slice$start[3] + ceiling(timesteps / 2)
   raster_slice$count[3] <- 1
+
   # get the values
   vals <- terraclimate_fetch(raster_slice)
+
+  # drop the time dimension
+  vals_matrix <- vals[, , 1, drop = TRUE]
 
   # put them in a raster
   tc_template <- rast(nrows = sum(y_valid),
                       ncols = sum(x_valid),
                       extent = tc_ext_edge,
-                      vals = t(vals))
+                      vals = t(vals_matrix))
 
   # resample the target raster to this one
   new_template_mask <- terra::resample(template,
