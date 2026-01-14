@@ -37,20 +37,24 @@ tiles <- make_tiles(tc_template, target_n_tiles = 100)
 # not too bad
 n_tiles <- nrow(tiles)
 
-# # check how they look
-# par(mfrow = c(1, 1))
-# plot(tc_template,
-#      box = FALSE,
-#      axes = FALSE)
-# for(i in seq_len(nrow(tiles))) {
-#   tiles |>
-#     dplyr::filter(tile == i) |>
-#     dplyr::pull(extent) |>
-#     dplyr::first() |>
-#     terra::ext() |>
-#     plot(add = TRUE)
-# }
-# # beautiful.
+# check how they look
+par(mfrow = c(1, 1))
+plot(tc_template,
+     box = FALSE,
+     axes = FALSE)
+for(i in seq_len(nrow(tiles))) {
+  extent <- tiles |>
+    dplyr::filter(tile == i) |>
+    dplyr::pull(extent) |>
+    dplyr::first()
+  extent |>
+    terra::ext() |>
+    plot(add = TRUE)
+  text(x = mean(extent[1:2]),
+       y = mean(extent[3:4]),
+       labels = i, cex = 0.5)
+}
+# beautiful.
 #
 # # zoom in to check the margins are non-overlapping and contain centoids, as
 # # expected
@@ -89,6 +93,7 @@ if (!dir.exists(terraclimate_save_dir)) {
 }
 
 # tiles_to_do <- seq_len(n_tiles)
+# tiles_to_do <- c(33, 45, 57, 65, 70)
 # for (i in tiles_to_do) {
 #   tiles$extent[[i]] |>
 #   extract_terraclimate_tile(
@@ -113,15 +118,15 @@ if (!dir.exists(vector_save_dir)) {
 # process batches of pixels in parallel. Set the number of workers (CPU cores),
 # and the maximum number of pixels to run at any one time, modified to manage
 # memory usage. Use these to define the number per processing batch
-n_workers <- 4
-n_pixels_at_once <- 100
+n_workers <- 7
+n_pixels_at_once <- 200
 n_pixels_per_batch <- n_pixels_at_once / n_workers
 
 library(furrr)
 plan(multisession, workers = n_workers)
 
 tiles_to_do <- seq_len(n_tiles)
-tiles_to_do <- 1:2
+tiles_to_do <- 1:2 #c(33, 45, 57, 65, 70)
 
 for (i in tiles_to_do) {
 
@@ -175,6 +180,10 @@ for (i in tiles_to_do) {
     )
 }
 
+# create monthly rasters for these data
+create_vector_rasters(template,
+                      species = "An. gambiae",
+                      variable = "adult")
 
 # # download terraclimate variables required for running microclimate simulations
 # download_time <- system.time(

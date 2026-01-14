@@ -1128,3 +1128,162 @@ tc_to_vectors <- function(pixel_terraclimate_data,
     )
 
 }
+
+# Create vector rasters from processed tile data. Takes a template raster to
+# which to align the outputs, the species name and the vector variable name
+# required, the directory 'vector_tile_dir' containing the RDS files of monthly
+# vector summary information for different tiles (as produced by tc_to_vectors()
+# ), the directory 'vector_raster_dir' for the output rasters to be saved into
+# (this will be created if it does not exist). Separate single-band GeoTiff
+# rasters will be saved into 'vector_raster_dir', with the filename formatted
+# approximately as: `<species>.<year>.<month>.<variable>.tif``
+create_vector_rasters <- function(
+    template = template,
+    species = c("An. gambiae", "An. stephensi"),
+    variable = "adult",
+    vector_tile_dir = "processing/vectors",
+    vector_raster_dir = "processing/tc_vector_rasters"
+) {
+
+  # enforce the species name spelling
+  species <- match.arg(species)
+
+  # create the output raster path, if needed
+  if (!dir.exists(vector_raster_dir)) {
+    dir.create(vector_raster_dir,
+               recursive = TRUE)
+  }
+
+  # make the terraclimate raster
+  terraclimate_template <- make_terraclimate_template(template)
+
+  # get the dates from the first tile
+  start_dates <- file.path(vector_tile_dir, "vector_tile_1.RDS") |>
+    readRDS() |>
+    dplyr::pull(pixel_vectors) |>
+    dplyr::first() |>
+    dplyr::pull(start)
+
+  # loop through years and months in dates
+  slices <- dplyr::tibble(
+    year = lubridate::year(start_dates),
+    month = lubridate::month(start_dates)
+  ) |>
+    dplyr::distinct()
+
+  n_slices <- nrow(slices)
+
+  # simplify the species name for filenames
+  species_simple <- tolower(gsub("An. ", "an_", species))
+
+  # list the vector tile files in the given repository
+  vector_tile_fpaths <- list.files(vector_tile_dir, full.names = TRUE)
+
+  # create a temporary terraclimate-aligned raster for this slice. This will be
+  # repeatedly called and updated, but discarded after each slice is processed,
+  # once the final version has been resampled to the original template raster
+  tc_slice_fpath <- tempfile(pattern = "tc_slice",
+                             fileext = ".tif")
+
+  # loop through the slices (years and months)
+  for (slice_idx in seq_len(n_slices)) {
+
+    slice <- slices[slice_idx, ]
+
+    # create a filepath for the final output raster
+    slice_fname <- sprintf("%s.%i.%02i.%s.tif",
+                           species_simple,
+                           slice$year,
+                           slice$month,
+                           variable)
+    slice_fpath <- file.path(vector_raster_dir, slice_fname)
+
+    # replace the slice with the empty terraclimate template raster
+    writeRaster(terraclimate_template,
+                tc_slice_fpath,
+                overwrite = TRUE)
+
+    # loop through the files in the tile
+    for (tile_fpath in vector_tile_fpaths) {
+
+      # load the tile data and subset to the species of interest
+      tile_data <- tile_fpath |>
+        readRDS() |>
+        dplyr::filter(
+          species == species
+        )
+
+      # extract the required variable values, in the slice year and month, for
+      # this tile
+      values <- tile_data |>
+        dplyr::select(
+          pixel_vectors
+        ) |>
+        dplyr::mutate(
+          pixel_index = dplyr::row_number(),
+          pixel_vectors = lapply(
+            pixel_vectors,
+            function(pixel_vectors) {
+              pixel_vectors |>
+                dplyr::select(
+                  all_of(c("start", variable))
+                )
+            }
+          )
+        ) |>
+        tidyr::unnest(
+          pixel_vectors
+        ) |>
+        dplyr::filter(
+          lubridate::year(start) == slice$year,
+          lubridate::month(start) == slice$month
+        ) |>
+        # check they are in the original order
+        dplyr::arrange(
+          pixel_index
+        ) |>
+        dplyr::pull(
+          !!variable
+        )
+
+      # read in the temporary slice raster
+      tc_slice_rast <- terra::rast(tc_slice_fpath)
+
+      # match coordinates to cells in template
+      coords_mat <- tile_data |>
+        dplyr::select(
+          longitude,
+          latitude
+        ) |>
+        as.matrix()
+
+      cell_idx <- cellFromXY(tc_slice_rast,
+                             coords_mat)
+
+      # put these values in the raster
+      tc_slice_rast[cell_idx] <- values
+
+      # save it to disk again
+      terra::writeRaster(tc_slice_rast,
+                         tc_slice_fpath,
+                         overwrite = TRUE)
+
+    }
+
+    # now we are done inserting all the tile date, read in the temporary slice
+    # raster again
+    tc_slice_rast <- terra::rast(tc_slice_fpath)
+
+    # resample it to the original template
+    slice_rast <- terra::resample(tc_slice_rast,
+                                  template,
+                                  method = "bilinear")
+
+    # and save this to disk
+    terra::writeRaster(slice_rast,
+                       slice_fpath,
+                       overwrite = TRUE)
+
+  }
+
+}
