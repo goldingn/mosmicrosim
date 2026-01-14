@@ -68,10 +68,21 @@ iterate_state <- function(state,
   # new adults (surviving and developing larvae)
   new_adult <- surviving_aquatic * emergence_fraction
 
+  # assume an infinitesimal (epsilon) number of adults are importated in each
+  # timestep rate, to prevent numerical underflow to zero in unsuitable regions.
+  imported_adult <- sqrt(.Machine$double.eps)
+
+  # While we might be interested in modelling the limits of population viability
+  # in terms of population extinction, that would require stochastic modelling
+  # with knowledge of the absolute amount of larval habitat, neither of which
+  # are feasible here. For modelling adult abundance in conjunction with an SDM
+  # for larval habitat suitability, we are satisfied with a non-negative
+  # index of abundance everywhere, which this importation rate achieves.
+
   # update and return the state
   list(
     aquatic = remaining_aquatic + new_aquatic,
-    adult = surviving_adult + new_adult
+    adult = surviving_adult + new_adult + imported_adult
   )
 
 }
