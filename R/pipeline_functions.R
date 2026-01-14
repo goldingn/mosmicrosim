@@ -1142,7 +1142,7 @@ create_vector_rasters <- function(
     species = c("An. gambiae", "An. stephensi"),
     variable = "adult",
     vector_tile_dir = "processing/vectors",
-    vector_raster_dir = "processing/tc_vector_rasters"
+    vector_raster_dir = "processing/vector_rasters"
 ) {
 
   # enforce the species name spelling
