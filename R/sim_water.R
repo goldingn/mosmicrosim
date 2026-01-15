@@ -237,10 +237,10 @@ simulate_ephemeral_habitat_vectorised <- function(
   n_times_sim <- length(index)
 
   # pull out timeseries needed for simulating
-  rainfall <- rainfall_matrix[index, ]
-  air_temperature <- air_temperature_matrix[index, ]
-  relative_humidity <- humidity_matrix[index, ]
-  windspeed <- windspeed_matrix[index, ]
+  rainfall <- rainfall_matrix[index, , drop = FALSE]
+  air_temperature <- air_temperature_matrix[index, , drop = FALSE]
+  relative_humidity <- humidity_matrix[index, , drop = FALSE]
+  windspeed <- windspeed_matrix[index, , drop = FALSE]
 
   # create a corresponding matrix of altitudes
   altitude <- matrix(data = 0,
@@ -288,7 +288,7 @@ simulate_ephemeral_habitat_vectorised <- function(
 
   # keep only the simulation data (post burnin)
   keep_index <- tail(seq_along(index), n_times_obs)
-  volumes <- volumes[keep_index, ]
+  volumes <- volumes[keep_index, , drop = FALSE]
 
   # convert to (depth then) surface area
   surface_areas <- cone_volume_to_surface(volumes)

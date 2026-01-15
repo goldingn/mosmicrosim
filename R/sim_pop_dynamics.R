@@ -68,8 +68,8 @@ iterate_state <- function(state,
   # new adults (surviving and developing larvae)
   new_adult <- surviving_aquatic * emergence_fraction
 
-  # assume an infinitesimal (epsilon) number of adults are importated in each
-  # timestep rate, to prevent numerical underflow to zero in unsuitable regions.
+  # assume an infinitesimal (epsilon) number of adults are imported in each
+  # timestep, to prevent numerical underflow to zero in unsuitable regions.
   imported_adult <- sqrt(.Machine$double.eps)
 
   # While we might be interested in modelling the limits of population viability
@@ -140,7 +140,7 @@ simulate_population <- function(
   index <- rep(seq_len(n_times), burnin_years + 1)
 
   # replicate the pre-computed lifehistory parameters
-  hourly_lifehistory <- hourly_lifehistory[index, ]
+  hourly_lifehistory <- hourly_lifehistory[index, , drop = FALSE]
 
   # simulate the population
   n <- length(index)
@@ -222,11 +222,11 @@ simulate_population_vectorised <- function(
   n_times_sim <- length(index)
 
   # pull out timeseries needed for simulating populations
-  larval_habitat_area <- larval_habitat_area_matrix[index, ]
-  mdr <- mdr_matrix[index, ]
-  efd <- efd_matrix[index, ]
-  das_zerodensity <- das_zerodensity_matrix[index, ]
-  ds <- ds_matrix[index, ]
+  larval_habitat_area <- larval_habitat_area_matrix[index, , drop = FALSE]
+  mdr <- mdr_matrix[index, , drop = FALSE]
+  efd <- efd_matrix[index, , drop = FALSE]
+  das_zerodensity <- das_zerodensity_matrix[index, , drop = FALSE]
+  ds <- ds_matrix[index, , drop = FALSE]
 
   # matrices for tracking
 
@@ -269,8 +269,8 @@ simulate_population_vectorised <- function(
 
   # and return the vectors, discarding the burnin
   list(
-    aquatic = aquatic_states[keep_index, ],
-    adult = adult_states[keep_index, ]
+    aquatic = aquatic_states[keep_index, , drop = FALSE],
+    adult = adult_states[keep_index, , drop = FALSE]
   )
 
 }
