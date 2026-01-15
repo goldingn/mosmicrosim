@@ -13,6 +13,7 @@ Imports:
     abind,
     dplyr,
     furrr,
+    fields,
     lubridate,
     mgcv,
     ncdf4,
