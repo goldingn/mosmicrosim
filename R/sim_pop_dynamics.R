@@ -68,8 +68,8 @@ iterate_state <- function(state,
   # new adults (surviving and developing larvae)
   new_adult <- surviving_aquatic * emergence_fraction
 
-  # assume an infinitesimal (epsilon) number of adults are importated in each
-  # timestep rate, to prevent numerical underflow to zero in unsuitable regions.
+  # assume an infinitesimal (epsilon) number of adults are imported in each
+  # timestep, to prevent numerical underflow to zero in unsuitable regions.
   imported_adult <- sqrt(.Machine$double.eps)
 
   # While we might be interested in modelling the limits of population viability
