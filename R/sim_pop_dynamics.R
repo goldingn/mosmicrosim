@@ -22,16 +22,24 @@ iterate_state <- function(state,
                           ds,
                           timestep = 1 / 24) {
 
+  # define an epsilon to avoid numerical underflow
+  epsilon <- sqrt(.Machine$double.eps)
+
   # extract the state
   aquatic <- state$aquatic
   adult <- state$adult
 
+  # set any NA values (due to numerical underflow) to 0
+  aquatic[is.na(aquatic)] <- 0
+  adult[is.na(adult)] <- 0
+
   # extract all of the environmental conditions, for this time
 
-  # given the current aquatic density and current survival at zero density (ie.
-  # as a function of water temperature), update daily aquatic survival to be
-  # density- (and temperature-) dependent
-  aquatic_density <- aquatic / larval_habitat_area[t, ]
+  # given the current aquatic density (with an infinitesimal larval habitat
+  # always considered to avoid numerical underflow issues) and current survival
+  # at zero density (ie. as a function of water temperature), update daily
+  # aquatic survival to be density- (and temperature-) dependent
+  aquatic_density <- aquatic / (larval_habitat_area[t, ] + epsilon)
   das_t <- das_densmod_function(surv_prob = das_zerodensity[t, ],
                                 density = aquatic_density)
 
@@ -70,7 +78,7 @@ iterate_state <- function(state,
 
   # assume an infinitesimal (epsilon) number of adults are imported in each
   # timestep, to prevent numerical underflow to zero in unsuitable regions.
-  imported_adult <- sqrt(.Machine$double.eps)
+  imported_adult <- epsilon
 
   # While we might be interested in modelling the limits of population viability
   # in terms of population extinction, that would require stochastic modelling
