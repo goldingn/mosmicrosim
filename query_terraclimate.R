@@ -24,10 +24,6 @@ template <- rast("temp/raster_mask.tif")
 # after all processing is complete
 tc_template <- make_terraclimate_template(template)
 
-# # get an elevation layer in this format (is this needed? Just have the altitude
-# # function default to the terraclimate one?)
-# tc_elevation <- get_tc_elevation_raster(tc_template)
-
 # now batch-process this by defining tiles covering the continent,
 # and extracting whole slices for those tiles for the required times
 
@@ -191,10 +187,58 @@ if (!dir.exists(vector_save_dir)) {
 #     )
 # }
 
-# create monthly rasters for these data
-create_vector_rasters(template,
-                      species = "An. gambiae",
-                      variable = "adult")
+# # create monthly rasters for these data
+# create_vector_rasters(template,
+#                       species = "An. gambiae",
+#                       variable = "adult")
+
+# adjust this to handle memory limits
+n_workers <- 8
+
+library(furrr)
+# use future_callr::callr to destroy workers after every batch is processed to
+# prevent momry leaks
+plan(future.callr::callr,
+     workers = n_workers)
+
+slices <- get_slices()
+n_slices <- nrow(slices)
+
+# which slices to do on this machine
+# slices_to_do <- seq_len(n_slices)
+slices_to_do <- 1:100
+slices_to_do <- 101:200
+slices_to_do <- 201:300
+
+# this failing because the terraclimate raster cannot be serialised and passed
+# to future, so wrap and unwrap it!
+template_wrapped <- terra::wrap(template)
+tc_template_wrapped <- terra::wrap(tc_template)
+
+slices |>
+  # subset to this processing batch (split across machines)
+  dplyr::filter(
+    slice %in% slices_to_do
+  ) |>
+  # make rasters for slices in parallel
+  dplyr::group_by(
+    slice
+  ) |>
+  tidyr::nest() |>
+  dplyr::mutate(
+    result = furrr::future_map(
+      data,
+      .f = ~create_vector_raster_slice(
+        year = .x$year,
+        month = .x$month,
+        template = template_wrapped,
+        terraclimate_template_wrapped = tc_template_wrapped,
+        species = "An. gambiae",
+        variable = "adult"
+      )
+    )
+  )
+
 
 # # download terraclimate variables required for running microclimate simulations
 # download_time <- system.time(
@@ -293,57 +337,22 @@ create_vector_rasters(template,
 
 
 
-
 # to do:
 
-# set up parallelisation across blocks of pixels in a tile (split into n_cores
-# groups, and parallel compute the water conditions and the population dynamics)
+# implement writing vector information to to monthly rasters (matching the
+# tc_template raster), and then resampling to match the template raster
+# DONE
 
+# drop first and last months from summary information!
+# DONE
 
-# library(tidyverse)
+# work out whether/how to resolve underflow in unsuitable regions (creates a
+# masking effect that is annoying when used in SDMs)
+# - just clamp populations to some epsilon (0.01?) or add a tiny constant rate
+#   of importation?
+# DONE
 
-# set up parallel batch processing of sets of pixels
-
-# # something like this:
-# tbl <- dplyr::tibble(
-#   latitude = 1:10,
-#   longitude = 1:10,
-#   hourly_microclimate = list(
-#     dplyr::tibble(
-#       date = Sys.Date(),
-#       hour = 1:24,
-#       x = runif(24)
-#     )
-#   )
-# )
-# library(furrr)
-# ?furrr
-# plan(multisession(workers = 4))
-#
-# inner_fun <- function(hourly_microclimate) {
-#   hourly_microclimate |>
-#     dplyr::mutate(
-#       y = x ^ 2
-#     )
-# }
-# run <- function(tbl) {
-#   lapply(tbl$hourly_microclimate,
-#          inner_fun)
-# }
-#
-# tbl |>
-#   # add batch variable
-#   dplyr::mutate(
-#     batch = ceiling(n_batches * seq_len(n()) / n()),
-#     .before = everything()
-#   ) |>
-#   dplyr::group_by(
-#     batch
-#   ) |>
-#   tidyr::nest() |>
-#   purrr::map(data, run)
-
-
+# run full set of simulations for Gerry
 
 # amend water simulation to take a shade proportion argument (fixed to 1 for
 # now) and solve for water temperature in dynamics, under full shade (no solar
