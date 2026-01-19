@@ -115,77 +115,81 @@ if (!dir.exists(vector_save_dir)) {
   dir.create(vector_save_dir, recursive = TRUE)
 }
 
-# process batches of pixels in parallel. Set the number of workers (CPU cores),
-# and the maximum number of pixels to run at any one time, modified to manage
-# memory usage. Use these to define the number per processing batch
-n_workers <- 16
-n_pixels_at_once <- 400
-n_pixels_per_batch <- n_pixels_at_once / n_workers
-
-library(furrr)
-plan(future.callr::callr,
-     workers = n_workers)
-# use future_callr::callr to destroy workers after every batch is processed
-
-# plan(sequential)
-
-# tiles_to_do <- seq_len(n_tiles)
-# tiles_to_do <- 1:2 #c(33, 45, 57, 65, 70)
-tiles_to_do <- 10:n_tiles
-
-for (i in tiles_to_do) {
-
-  gc()
-  # load terraclimate tile data
-  file.path(terraclimate_save_dir,
-            sprintf("tc_tile_%d.RDS", i)) |>
-    readRDS() |>
-    # add batch variable
-    dplyr::mutate(
-      # assign pixels to batches, with no more than n_pixels_per_batch pixels in
-      # each
-      batch = rep(
-        seq_len(
-          ceiling(
-            dplyr::n() / n_pixels_per_batch
-          )
-        ),
-        each = n_pixels_per_batch,
-        length.out = dplyr::n()
-      ),
-      .before = everything()
-    ) |>
-    # split up the tile into these batches
-    dplyr::group_by(
-      batch
-    ) |>
-    tidyr::nest() |>
-    dplyr::ungroup() |>
-    # begin processing steps, all in one go to reduce overhead
-    dplyr::mutate(
-      data = furrr::future_map(
-      # purrr::map(
-        data,
-        ~mosmicrosim:::tc_to_vectors(
-          .x,
-          species = "An. gambiae",
-          included_dates = dates
-        ),
-        .options = furrr_options(seed = NULL)
-      )
-    ) |>
-    dplyr::select(
-      -batch
-    ) |>
-    tidyr::unnest(
-      cols = data
-    ) |>
-    # save the processed tile of vector simulations as a compressed RDS file
-    saveRDS(
-      file = file.path(vector_save_dir,
-                       sprintf("vector_tile_%d.RDS", i))
-    )
-}
+# # process batches of pixels in parallel. Set the number of workers (CPU cores),
+# # and the maximum number of pixels to run at any one time, modified to manage
+# # memory usage. Use these to define the number per processing batch
+# n_workers <- 8
+# n_pixels_at_once <- 600
+# n_pixels_per_batch <- n_pixels_at_once / n_workers
+#
+# library(furrr)
+# plan(future.callr::callr,
+#      workers = n_workers)
+# # use future_callr::callr to destroy workers after every batch is processed
+#
+# # plan(sequential)
+#
+# # tiles_to_do <- seq_len(n_tiles)
+# # tiles_to_do <- 1:2 #c(33, 45, 57, 65, 70)
+# # tiles_to_do <- 1:n_tiles
+#
+# tiles_to_do <- 11:49
+# tiles_to_do <- 53:99
+# tiles_to_do <- 102:n_tiles
+#
+# for (i in tiles_to_do) {
+#
+#   gc()
+#   # load terraclimate tile data
+#   file.path(terraclimate_save_dir,
+#             sprintf("tc_tile_%d.RDS", i)) |>
+#     readRDS() |>
+#     # add batch variable
+#     dplyr::mutate(
+#       # assign pixels to batches, with no more than n_pixels_per_batch pixels in
+#       # each
+#       batch = rep(
+#         seq_len(
+#           ceiling(
+#             dplyr::n() / n_pixels_per_batch
+#           )
+#         ),
+#         each = n_pixels_per_batch,
+#         length.out = dplyr::n()
+#       ),
+#       .before = everything()
+#     ) |>
+#     # split up the tile into these batches
+#     dplyr::group_by(
+#       batch
+#     ) |>
+#     tidyr::nest() |>
+#     dplyr::ungroup() |>
+#     # begin processing steps, all in one go to reduce overhead
+#     dplyr::mutate(
+#       data = furrr::future_map(
+#       # purrr::map(
+#         data,
+#         ~mosmicrosim:::tc_to_vectors(
+#           .x,
+#           species = "An. gambiae",
+#           included_dates = dates
+#         ),
+#         .options = furrr_options(seed = NULL)
+#       )
+#     ) |>
+#     dplyr::select(
+#       -batch
+#     ) |>
+#     tidyr::unnest(
+#       cols = data
+#     ) |>
+#     # save the processed tile of vector simulations as a compressed RDS file
+#     saveRDS(
+#       file = file.path(vector_save_dir,
+#                        sprintf("vector_tile_%d.RDS", i))
+#     )
+# }
 
 # create monthly rasters for these data
 create_vector_rasters(template,
