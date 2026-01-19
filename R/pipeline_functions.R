@@ -1231,15 +1231,18 @@ create_vector_raster_slice <- function(
   slice_fpath <- file.path(vector_raster_dir, slice_fname)
 
   # list the vector tile files in the given repository
-  vector_tile_fpaths <- list.files(vector_tile_dir, full.names = TRUE)
+  vector_tile_fpaths <- list.files(vector_tile_dir,
+                                   full.names = TRUE)
 
   # create a temporary terraclimate-aligned raster for this slice. This will be
   # repeatedly called and updated, but discarded after each slice is processed,
   # once the final version has been resampled to the original template raster
-  tc_slice_fpath <- tempfile(pattern = sprintf("tc_slice_%i_%i_",
-                                               year,
-                                               month),
-                             fileext = ".tif")
+  tc_slice_fpath <- tempfile(
+    pattern = sprintf("tc_slice_%i_%i_",
+                      year,
+                      month),
+    fileext = ".tif"
+  )
 
   # put the empty terraclimate template raster in this file
   terra::writeRaster(terraclimate_template,

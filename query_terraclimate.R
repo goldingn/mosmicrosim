@@ -225,10 +225,11 @@ slices |>
     slice
   ) |>
   tidyr::nest() |>
+  dplyr::ungroup() |>
   dplyr::mutate(
     result = furrr::future_map(
       data,
-      .f = ~create_vector_raster_slice(
+      .f = ~mosmicrosim:::create_vector_raster_slice(
         year = .x$year,
         month = .x$month,
         template = template_wrapped,
