@@ -7,7 +7,7 @@
 # get the URL to the terraclimate monthly summary data
 terraclimate_url <- function(variable = c("tmax", "tmin", "ppt", "ws", "vpd", "srad")) {
   variable <- match.arg(variable)
-  base_url <- "http://thredds.northwestknowledge.net:8080/thredds/dodsC/agg_terraclimate_%s_1958_CurrentYear_GLOBE.nc#fillmismatch"
+  base_url <- "http://thredds.northwestknowledge.net:8080/thredds/dodsC/agg_terraclimate_%s_1950_CurrentYear_GLOBE.nc#fillmismatch"
   sprintf(base_url, variable)
 }
 
