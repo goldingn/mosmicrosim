@@ -319,7 +319,11 @@ simulate_hourly_microclimate <- function(pixel_daily_climate) {
 simulate_hourly_conditions <- function(
     pixel_hourly_microclimate,
     model_water_temperature = FALSE,
-    water_shade_proportion = 1
+    water_shade_proportion = 1,
+    water_burnin_years = 1,
+    initial_water_volume = 0,
+    max_cone_depth = 1,
+    inflow_multiplier = 1
 ) {
 
   # warn the user if they tried to set a model parameter for water shade
@@ -434,10 +438,10 @@ simulate_hourly_conditions <- function(
     humidity_matrix = variable_list$humidity,
     windspeed_matrix = variable_list$windspeed,
     altitude_vector = pixel_info$altitude,
-    initial_volume = 0,
-    burnin_years = 0,
-    max_cone_depth = 1,
-    inflow_multiplier = 1
+    initial_volume = initial_water_volume,
+    burnin_years = water_burnin_years,
+    max_cone_depth = max_cone_depth,
+    inflow_multiplier = inflow_multiplier
   )
 
   # now convert this list of pixel-by-time condition information back into a

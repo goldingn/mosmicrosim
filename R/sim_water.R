@@ -131,76 +131,40 @@ iterate_cone_volume <- function(water_volume,
 
 }
 
-# given an hourly timeseries of conditions (including rainfall, windspeed and
-# altitude), compute a timeseries of water surface area from a simple cone model
+# given an hourly timeseries of conditions for a single location (including
+# rainfall, windspeed and altitude), compute a timeseries of water surface area
+# from a simple cone model. This is a thin single-location convenience wrapper
+# around simulate_ephemeral_habitat_vectorised() (which the pipeline calls
+# directly), so the two stay in lock-step. Burnin is on by default
+# (burnin_years = 1): the first year of the timeseries is replayed burnin_years
+# times before the period of interest, and that burnin discarded, so the
+# returned timeseries starts at the water level implied by the climate rather
+# than from the (arbitrary) initial_volume.
 simulate_ephemeral_habitat <- function(hourly_climate,
                                        altitude,
                                        initial_volume = 0,
-                                       burnin_years = 0,
+                                       burnin_years = 1,
                                        max_cone_depth = 1,
                                        inflow_multiplier = 1) {
 
-  # add whole years of burnin, repeating the first year for each
-  n_times_total <- length(hourly_climate$water_temperature)
-  n_times_year <- 365 * 24
-  first_year_index <- seq_len(n_times_year)
-  timeseries_index <- seq_len(n_times_total)
-  index <- c(rep(first_year_index, burnin_years),
-             timeseries_index)
+  # reshape the single location's conditions into one-column matrices and defer
+  # to the vectorised implementation
+  as_column <- function(x) matrix(x, ncol = 1)
 
-  n_times <- length(hourly_climate$water_temperature)
-  index <- rep(seq_len(n_times), burnin_years + 1)
-
-  # pull out timeseries needed for simulating
-  rainfall <- hourly_climate$rainfall[index]
-  air_temperature <- hourly_climate$air_temperature[index]
-  relative_humidity <- hourly_climate$humidity[index]
-  windspeed <- hourly_climate$windspeed[index]
-
-  # set up the cone model
-
-  # define the cone - assume it cone has a maximum depth of 1m, so a maximum
-  # volume of 1.05m3, beyond which it cannot get more full
-  max_cone_volume <- cone_depth_to_volume(max_cone_depth)
-
-  # the catchment area is arbitrary (modelling only relative
-  # abundance), but set it to the maximum cone surface area - pi!
-  catchment_area <- inflow_multiplier * cone_volume_to_surface(max_cone_volume)
-
-  # precalculate the evaporation rate per unit surface area
-  loss_kg_h_m2 <- evaporation_rate_kg_h(
-    temperature_c = air_temperature,
-    relative_humidity = relative_humidity,
-    altitude_m = altitude,
-    windspeed_m_s = windspeed,
-    surface_area_m2 = 1
+  water <- simulate_ephemeral_habitat_vectorised(
+    rainfall_matrix = as_column(hourly_climate$rainfall),
+    air_temperature_matrix = as_column(hourly_climate$air_temperature),
+    humidity_matrix = as_column(hourly_climate$humidity),
+    windspeed_matrix = as_column(hourly_climate$windspeed),
+    altitude_vector = altitude,
+    initial_volume = initial_volume,
+    burnin_years = burnin_years,
+    max_cone_depth = max_cone_depth,
+    inflow_multiplier = inflow_multiplier
   )
 
-  # simulate the water volume
-  n <- length(index)
-  volumes <- numeric(length = length(index))
-  volume <- initial_volume
-
-  for (t in seq_along(volumes)) {
-    volume <- iterate_cone_volume(water_volume = volume,
-                                  t = t,
-                                  rainfall_mm_h = rainfall,
-                                  evaporation_rate_kg_h_m2 = loss_kg_h_m2,
-                                  # temperature_c = air_temperature,
-                                  # relative_humidity = relative_humidity,
-                                  # altitude_m = altitude,
-                                  # windspeed_m_s = windspeed,
-                                  max_cone_volume = max_cone_volume,
-                                  catchment_area = catchment_area)
-    volumes[t] <- volume
-  }
-
-  # keep only the final year (post burnin)
-  keep_index <- tail(seq_along(index), n_times_total)
-  volumes <- volumes[keep_index]
-
-  # convert to (depth then) surface area
-  surface_areas <- cone_volume_to_surface(volumes)
+  # return the surface-area timeseries for the single location as a vector
+  water$water_surface_area[, 1]
 
 }
 
@@ -208,25 +172,34 @@ simulate_ephemeral_habitat <- function(hourly_climate,
 # Given a time-by-pixel matrices of the hourly values of each of the
 # microclimate conditions used to model water (rainfall, air temperature,
 # humidity, and windspeed), a vector of the altitudes of the
-# pixels (defaulting to sea-level), the initial water volume (defaulting to 1),
-# a number of years of burnin (defaulting to 0), the maximum cone depth
+# pixels (defaulting to sea-level), the initial water volume (defaulting to 0),
+# a number of years of burnin (defaulting to 1), the maximum cone depth
 # (defaulting to 1) and an inflow multiplier to modify run-on of water into each
 # pool (defaulting to 1, no run-on), compute a timeseries of water surface area
-# from a simple 90 degree angle cone model.
+# from a simple 90 degree angle cone model. With burnin_years >= 1 the first
+# year of the timeseries is replayed that many times before the period of
+# interest (and the burnin discarded), so the pools start at the water level
+# implied by the climate.
 simulate_ephemeral_habitat_vectorised <- function(
     rainfall_matrix,
     air_temperature_matrix,
     humidity_matrix,
     windspeed_matrix,
-    altitude_vector = rep(0, ncol(microclimate_matrices[[1]])),
+    altitude_vector = rep(0, ncol(rainfall_matrix)),
     initial_volume = 0,
-    burnin_years = 0,
+    burnin_years = 1,
     max_cone_depth = 1,
     inflow_multiplier = 1) {
 
-  # add whole years of burnin, repeating the first year for each
+  if (burnin_years < 0) {
+    stop("burnin_years must be non-negative, but was ", burnin_years,
+         call. = FALSE)
+  }
+
+  # add whole years of burnin, repeating the first year for each. Guard against
+  # a timeseries shorter than a year, which would otherwise index past the data
   n_times_obs <- nrow(rainfall_matrix)
-  n_times_year <- 365 * 24
+  n_times_year <- min(365 * 24, n_times_obs)
   first_year_index <- seq_len(n_times_year)
   timeseries_index <- seq_len(n_times_obs)
   index <- c(rep(first_year_index, burnin_years),
